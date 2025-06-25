@@ -1,19 +1,20 @@
 module ForwardBackward
 
-using Distributions, LinearAlgebra, ArraysOfArrays
+using Distributions, LinearAlgebra, ArraysOfArrays, Zygote
 
 include("maths.jl")
 include("processes.jl")
 include("states.jl")
 include("propagation.jl")
 include("manifolds.jl")
-
+include("sdeprocesses.jl")
 export
     #Abstract Types
     Process,
     DiscreteProcess,
     State,
     StateLikelihood,
+    ContinuousProcess,
     #Processes
     Deterministic,    
     BrownianMotion,
@@ -43,6 +44,8 @@ export
     ManifoldState,
     perturb!,
     perturb,
-    expand
-    
+    expand,
+    SDEState,
+    SDEProcess,
+    realise_path
 end
