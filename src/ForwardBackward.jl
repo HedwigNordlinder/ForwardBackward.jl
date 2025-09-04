@@ -8,7 +8,7 @@ include("states.jl")
 include("propagation.jl")
 include("manifolds.jl")
 include("sdeprocesses.jl")
-include("switchingprocess.jl")
+
 export
     #Abstract Types
     Process,
