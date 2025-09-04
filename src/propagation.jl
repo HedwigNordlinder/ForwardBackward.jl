@@ -299,3 +299,21 @@ function endpoint_conditioned_sample(X0::ContinuousState{T},
     t = tF ./ (tF .+ tB)
     return endpoint_conditioned_sample(X0, X1, P, t)
 end
+# --- scalar t in [0,1) ---
+function endpoint_conditioned_sample(X0::ContinuousState{T},
+    X1::ContinuousState{T},
+    P::SwitchingBM{T},
+    t::T) where {T<:Real}
+N = size(tensor(X0), 2)
+return endpoint_conditioned_sample(X0, X1, P, fill(t, N))
+end
+
+# --- scalar (tF, tB) ---
+function endpoint_conditioned_sample(X0::ContinuousState{T},
+    X1::ContinuousState{T},
+    P::SwitchingBM{T},
+    tF::T, tB::T) where {T<:Real}
+t = tF / (tF + tB)          # total horizon is 1 in Flowfusion
+N = size(tensor(X0), 2)
+return endpoint_conditioned_sample(X0, X1, P, fill(t, N))
+end
