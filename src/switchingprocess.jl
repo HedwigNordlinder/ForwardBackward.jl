@@ -1,5 +1,3 @@
-using Distributions, Random
-
 # --- Process ---------------------------------------------------------------
 
 struct SwitchingBM{T} <: ContinuousProcess
