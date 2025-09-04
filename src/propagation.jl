@@ -214,3 +214,88 @@ function backward!(dest::CategoricalLikelihood, source::CategoricalLikelihood, p
 end
 
 #To add: DiagonalizadCTMC, HQtPi
+# =============== SwitchingBM endpoint-conditioned sampler ====================
+
+# Evaluate the state-dependent rate at a scalar; if states are vectors, use ‖x‖.
+# (Change this if you prefer a different reduction.)
+λ_at(P::SwitchingBM, x) = P.λ(x isa Number ? x : norm(x))
+
+# One-shot frozen-rate mirror bridge at time t ∈ (0,1).
+# Exact for constant λ; first-order accurate if λ depends on state.
+function _switchingbm_bridge!(y::AbstractVector{T}, x::AbstractVector{T}, a::AbstractVector{T},
+                              t::T, σ::T, λ0::T) where {T<:Real}
+    if t ≤ zero(T)
+        y .= x; return y
+    elseif t ≥ one(T)
+        y .= a; return y
+    end
+    τ  = one(T) - t
+    s  = σ*sqrt(t*τ)                 # Brownian-bridge std at time t
+    αt = 0.5*(1 + exp(-2*λ0*t))      # even-parity on [0,t]
+    ατ = 0.5*(1 + exp(-2*λ0*τ))      # even-parity on [t,1]
+
+    # log-weights for (i,j) ∈ {+1,-1}×{+1,-1}
+    lp = (i,j)-> log(i==+1 ? αt : 1-αt) + log(j==+1 ? ατ : 1-ατ)
+    # Gaussian normalizer from product φ(i x; j a, σ²) (constants drop in softmax)
+    lg = (i,j)-> - (sum(abs2, @. (i*x) - (j*a))) / (2*σ^2)
+
+    Lpp = lp(+1,+1) + lg(+1,+1)
+    Lpm = lp(+1,-1) + lg(+1,-1)
+    Lmp = lp(-1,+1) + lg(-1,+1)
+    Lmm = lp(-1,-1) + lg(-1,-1)
+    m   = max(max(Lpp,Lpm), max(Lmp,Lmm))
+    wpp = exp(Lpp - m); wpm = exp(Lpm - m); wmp = exp(Lmp - m); wmm = exp(Lmm - m)
+    Z   = wpp + wpm + wmp + wmm
+    wpp /= Z; wpm /= Z; wmp /= Z; wmm /= Z
+
+    # sample (i,j)
+    u = rand()
+    i = +1; j = +1
+    if u > wpp
+        u -= wpp
+        if u ≤ wpm
+            i=+1; j=-1
+        elseif (u -= wpm) ≤ wmp
+            i=-1; j=+1
+        else
+            i=-1; j=-1
+        end
+    end
+
+    # mean μ_{ij} = (1−t) i x + t j a ; variance s^2 I
+    @. y = (τ * (i*x)) + (t * (j*a)) + s * randn(T)
+    return y
+end
+
+# Vector-of-times API that Flowfusion calls: endpoint_conditioned_sample(X0, X1, P, t::Vector)
+function endpoint_conditioned_sample(X0::ContinuousState{T},
+                                     X1::ContinuousState{T},
+                                     P::SwitchingBM{T},
+                                     t::AbstractVector{T}) where {T<:Real}
+    x0 = tensor(X0)         # D×N
+    a1 = tensor(X1)         # D×N
+    D, N = size(x0)
+    @assert size(a1) == (D, N)
+    @assert length(t) == N
+
+    out = similar(x0)
+    y   = zeros(T, D)
+    @inbounds for n in 1:N
+        λ0 = λ_at(P, view(x0, :, n))   # freeze λ at the left endpoint for this sample
+        _switchingbm_bridge!(y, view(x0, :, n), view(a1, :, n), t[n], P.σ, λ0)
+        @views out[:, n] .= y
+    end
+    return ContinuousState(out)
+end
+
+# Two-vector API used internally by ForwardBackward/Flowfusion:
+# interpret tF, tB as proportional parts of total 1.0 and map to t = tF/(tF+tB).
+function endpoint_conditioned_sample(X0::ContinuousState{T},
+                                     X1::ContinuousState{T},
+                                     P::SwitchingBM{T},
+                                     tF::AbstractVector{T},
+                                     tB::AbstractVector{T}) where {T<:Real}
+    @assert length(tF) == length(tB)
+    t = tF ./ (tF .+ tB)
+    return endpoint_conditioned_sample(X0, X1, P, t)
+end
