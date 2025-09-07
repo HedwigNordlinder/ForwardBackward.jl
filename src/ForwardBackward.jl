@@ -7,7 +7,7 @@ include("processes.jl")
 include("states.jl")
 include("propagation.jl")
 include("manifolds.jl")
-include("sdeprocesses.jl")
+include("sdeprocess.jl")
 
 export
     #Abstract Types
@@ -16,6 +16,7 @@ export
     State,
     StateLikelihood,
     ContinuousProcess,
+    SDEProcess,
     #Processes
     Deterministic,    
     BrownianMotion,
