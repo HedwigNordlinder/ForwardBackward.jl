@@ -56,10 +56,10 @@ function endpoint_conditioned_sample(X0::ContinuousState{T},
     @inbounds for n in 1:N
         t_target = t[n]
         if t_target ≤ zero(T)
-            @views out[:, n] .= @view x0[:, n]
+            @views out[:, n] .= x0[:, n]
             continue
         elseif t_target ≥ one(T)
-            @views out[:, n] .= @view x1[:, n]
+            @views out[:, n] .= x1[:, n]
             continue
         end
 
