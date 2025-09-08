@@ -389,7 +389,9 @@ function forward!(Xdest::SwitchingSDEState{T},
     D, N = size(x0_cont)
     @assert length(t) == N
     @assert size(x0_disc) == (N,)
-    @assert X0.K == size(P.Q, 1) || true
+    if P.Q isa AbstractMatrix
+        @assert X0.K == size(P.Q, 1)
+    end
     
     xd_cont = Xdest.continuous_state
     xd_disc = Xdest.discrete_state
@@ -477,7 +479,10 @@ function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
     @assert length(r0) == N
     @assert length(r1) == N
     @assert length(t)  == N
-    @assert X0.K == size(P.Q, 1) || true
+    # If Q is a static matrix, validate regime count matches K
+    if P.Q isa AbstractMatrix
+        @assert X0.K == size(P.Q, 1)
+    end
 
     outc = similar(x0c)
     outr = similar(r0)
@@ -534,7 +539,10 @@ function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
     @assert length(r0) == N
     @assert length(r1) == N
     @assert N == length(tF)
-    @assert X0.K == size(P.Q, 1) || true
+    # If Q is a static matrix, validate regime count matches K
+    if P.Q isa AbstractMatrix
+        @assert X0.K == size(P.Q, 1)
+    end
 
     outc = similar(x0c)
     outr = similar(r0)
