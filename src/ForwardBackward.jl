@@ -22,6 +22,7 @@ export
     BrownianMotion,
     OrnsteinUhlenbeck,
     SwitchingBM,
+    SwitchingSDEProcess,
     UniformDiscrete,
     UniformUnmasking,
     GeneralDiscrete,
@@ -29,8 +30,10 @@ export
     #Likelihoods & States
     CategoricalLikelihood,
     GaussianLikelihood,
+    SwitchingSDELikelihood,
     DiscreteState,
     ContinuousState,
+    SwitchingSDEState,
     #Functions
     endpoint_conditioned_sample,
     interpolate,
