@@ -429,3 +429,132 @@ function forward(X0::SwitchingSDEState{T},
     @assert length(tF) == length(tB)
     return forward(X0, P, tF; Δt=Δt)
 end
+
+# --- endpoint-conditioned sampling for SwitchingSDEProcess --------------------
+
+# Vector-of-times t[1:N] in [0,1] (total horizon T_end = 1)
+function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
+    X1::SwitchingSDEState{T},
+    P::SwitchingSDEProcess,
+    t::AbstractVector{T};
+    Δt::Real=1e-3) where {T<:Real}
+
+    x0c = X0.continuous_state               # D×N
+    x1c = X1.continuous_state               # D×N
+    r0  = X0.discrete_state                 # N
+    r1  = X1.discrete_state                 # N (used only if t ≥ 1)
+    D, N = size(x0c)
+    @assert size(x1c) == (D, N)
+    @assert length(r0) == N
+    @assert length(r1) == N
+    @assert length(t)  == N
+    @assert X0.K == size(P.Q, 1)
+
+    outc = similar(x0c)
+    outr = similar(r0)
+    x    = similar(x0c, D)                  # work buffer
+
+    @inbounds for n in 1:N
+        t_target = t[n]
+        if t_target ≤ zero(T)
+            @views outc[:, n] .= x0c[:, n]
+            outr[n] = r0[n]
+            continue
+        end
+        if t_target ≥ one(T)
+            @views outc[:, n] .= x1c[:, n]
+            outr[n] = r1[n]
+            continue
+        end
+
+        @views x .= x0c[:, n]
+        @views a = x1c[:, n]
+        r = r0[n]
+
+        τ = zero(T)                # absolute time in [0,1]
+        while τ < t_target
+            h = min(T(Δt), t_target - τ)
+            μk, σk = _get_regime_functions(P, r)   # freeze regime over [τ, τ+h]
+            step_toward!(x, a, τ, h, μk, σk; T_end=one(T))
+            r = _ctmc_step!(r, P.Q, h)            # allow jump after the local bridge step
+            τ += h
+        end
+        @views outc[:, n] .= x
+        outr[n] = r
+    end
+    return SwitchingSDEState(outc, outr, X0.K; validate=false)
+end
+
+# Two-vectors (tF, tB) of the same length → per-column horizon T_n = tF[n]+tB[n], target tF[n]
+function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
+    X1::SwitchingSDEState{T},
+    P::SwitchingSDEProcess,
+    tF::AbstractVector{T},
+    tB::AbstractVector{T};
+    Δt::Real=1e-3) where {T<:Real}
+
+    @assert length(tF) == length(tB)
+
+    x0c = X0.continuous_state
+    x1c = X1.continuous_state
+    r0  = X0.discrete_state
+    r1  = X1.discrete_state
+    D, N = size(x0c)
+    @assert size(x1c) == (D, N)
+    @assert length(r0) == N
+    @assert length(r1) == N
+    @assert N == length(tF)
+    @assert X0.K == size(P.Q, 1)
+
+    outc = similar(x0c)
+    outr = similar(r0)
+    x    = similar(x0c, D)
+
+    @inbounds for n in 1:N
+        T_end    = tF[n] + tB[n]
+        t_target = tF[n]
+        if t_target ≤ zero(T)
+            @views outc[:, n] .= x0c[:, n]
+            outr[n] = r0[n]
+            continue
+        end
+        if t_target ≥ T_end
+            @views outc[:, n] .= x1c[:, n]
+            outr[n] = r1[n]
+            continue
+        end
+
+        @views x .= x0c[:, n]
+        @views a = x1c[:, n]
+        r = r0[n]
+        τ = zero(T)   # absolute time in [0, T_end]
+        while τ < t_target
+            h = min(T(Δt), t_target - τ)
+            μk, σk = _get_regime_functions(P, r)   # freeze regime over [τ, τ+h]
+            step_toward!(x, a, τ, h, μk, σk; T_end=T_end)
+            r = _ctmc_step!(r, P.Q, h)
+            τ += h
+        end
+        @views outc[:, n] .= x
+        outr[n] = r
+    end
+    return SwitchingSDEState(outc, outr, X0.K; validate=false)
+end
+
+# Scalar t replicated across columns (total horizon 1)
+function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
+    X1::SwitchingSDEState{T},
+    P::SwitchingSDEProcess,
+    t::T; Δt::Real=1e-3) where {T<:Real}
+    N = size(X0.continuous_state, 2)
+    return endpoint_conditioned_sample(X0, X1, P, fill(t, N); Δt=Δt)
+end
+
+# Scalar (tF, tB) replicated across columns
+function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
+    X1::SwitchingSDEState{T},
+    P::SwitchingSDEProcess,
+    tF::T, tB::T; Δt::Real=1e-3) where {T<:Real}
+    N = size(X0.continuous_state, 2)
+    return endpoint_conditioned_sample(X0, X1, P, fill(tF, N), fill(tB, N); Δt=Δt)
+end
