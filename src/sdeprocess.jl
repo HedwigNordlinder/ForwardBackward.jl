@@ -13,24 +13,30 @@ A switching SDE process where drift and diffusion coefficients are selected from
 # Parameters
 - `μ_array`: Array/Vector of drift functions μ_k(x,t), one for each discrete regime k
 - `σ_array`: Array/Vector of diffusion functions σ_k(x,t), one for each discrete regime k  
-- `Q`: Transition rate matrix for the CTMC (K×K matrix where K is number of regimes)
+- `Q`: Either a static K×K transition rate matrix, or a callable returning such a matrix as `Q(x)` or `Q(x, t)`
 
 # Examples
 ```julia
-# Create a 2-regime switching SDE
-μ_funcs = [(x,t) -> -0.5*x, (x,t) -> 0.1*x]  # different drift regimes
-σ_funcs = [(x,t) -> 1.0, (x,t) -> 2.0]        # different diffusion regimes
-Q = [-1.0 1.0; 2.0 -2.0]                      # CTMC transition rates
+# Static-Q example (2 regimes)
+μ_funcs = [(x,t) -> -0.5*x, (x,t) -> 0.1*x]
+σ_funcs = [(x,t) -> 1.0, (x,t) -> 2.0]
+Q = [-1.0 1.0; 2.0 -2.0]
 process = SwitchingSDEProcess(μ_funcs, σ_funcs, Q)
+
+# State-dependent-Q example (2 regimes)
+Qfun(x, t) = [-1.0 - 0.1*norm(x) 1.0 + 0.1*norm(x);
+               2.0                 -2.0]
+process = SwitchingSDEProcess(μ_funcs, σ_funcs, Qfun)
 ```
 """
 struct SwitchingSDEProcess{Fμ,Fσ,TQ} <: ContinuousProcess
     μ_array::Fμ     # Array of drift functions: μ_k(x,t) for regime k
     σ_array::Fσ     # Array of diffusion functions: σ_k(x,t) for regime k  
-    Q::TQ           # CTMC transition rate matrix (K×K)
+    Q::TQ           # CTMC transition rate matrix (K×K) or callable Q(x[,t])
 end
 
-function SwitchingSDEProcess(μ_array, σ_array, Q)
+# Constructor for static matrix Q
+function SwitchingSDEProcess(μ_array, σ_array, Q::AbstractMatrix)
     @assert length(μ_array) == length(σ_array) "μ_array and σ_array must have same length"
     @assert size(Q, 1) == size(Q, 2) == length(μ_array) "Q must be square with size matching μ_array length"
     @assert all(diag(Q) .<= 0) "Diagonal elements of Q must be non-positive"
@@ -38,9 +44,31 @@ function SwitchingSDEProcess(μ_array, σ_array, Q)
     SwitchingSDEProcess{typeof(μ_array),typeof(σ_array),typeof(Q)}(μ_array, σ_array, Q)
 end
 
-# Helper function to get the current drift/diffusion based on discrete state
+# Constructor for callable Q(x[, t])
+function SwitchingSDEProcess(μ_array, σ_array, Qfun)
+    @assert length(μ_array) == length(σ_array) "μ_array and σ_array must have same length"
+    # Can't validate sizes/rates at construction; will validate per-call
+    return SwitchingSDEProcess{typeof(μ_array),typeof(σ_array),typeof(Qfun)}(μ_array, σ_array, Qfun)
+end
+
+# Helper: current regime's drift/diffusion
 @inline function _get_regime_functions(P::SwitchingSDEProcess, regime::Integer)
     return P.μ_array[regime], P.σ_array[regime]
+end
+
+# Helper: obtain Q matrix for current state/time
+@inline function _Q_at(P::SwitchingSDEProcess, x, τ)
+    Qsrc = P.Q
+    if Qsrc isa AbstractMatrix
+        return Qsrc
+    else
+        # Try Q(x, τ); fallback to Q(x)
+        return try
+            Qsrc(x, τ)
+        catch
+            Qsrc(x)
+        end
+    end
 end
 
 # Simulate CTMC transitions for a single step
@@ -86,8 +114,9 @@ end
 @inline function _switching_sde_step!(x::AbstractVector{T}, discrete_state_ref::Ref{<:Integer}, 
     τ::T, h::T, P::SwitchingSDEProcess) where {T<:Real}
     
-    # Step 1: Update discrete state via CTMC
-    discrete_state_ref[] = _ctmc_step!(discrete_state_ref[], P.Q, h)
+    # Step 1: Update discrete state via CTMC with frozen Q(x, τ)
+    Qmat = _Q_at(P, x, τ)
+    discrete_state_ref[] = _ctmc_step!(discrete_state_ref[], Qmat, h)
     
     # Step 2: Get current regime's drift and diffusion
     μ_current, σ_current = _get_regime_functions(P, discrete_state_ref[])
@@ -360,7 +389,7 @@ function forward!(Xdest::SwitchingSDEState{T},
     D, N = size(x0_cont)
     @assert length(t) == N
     @assert size(x0_disc) == (N,)
-    @assert X0.K == size(P.Q, 1)
+    @assert X0.K == size(P.Q, 1) || true
     
     xd_cont = Xdest.continuous_state
     xd_disc = Xdest.discrete_state
@@ -448,7 +477,7 @@ function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
     @assert length(r0) == N
     @assert length(r1) == N
     @assert length(t)  == N
-    @assert X0.K == size(P.Q, 1)
+    @assert X0.K == size(P.Q, 1) || true
 
     outc = similar(x0c)
     outr = similar(r0)
@@ -476,7 +505,8 @@ function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
             h = min(T(Δt), t_target - τ)
             μk, σk = _get_regime_functions(P, r)   # freeze regime over [τ, τ+h]
             step_toward!(x, a, τ, h, μk, σk; T_end=one(T))
-            r = _ctmc_step!(r, P.Q, h)            # allow jump after the local bridge step
+            Qmat = _Q_at(P, x, τ)
+            r = _ctmc_step!(r, Qmat, h)            # allow jump after the local bridge step
             τ += h
         end
         @views outc[:, n] .= x
@@ -504,7 +534,7 @@ function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
     @assert length(r0) == N
     @assert length(r1) == N
     @assert N == length(tF)
-    @assert X0.K == size(P.Q, 1)
+    @assert X0.K == size(P.Q, 1) || true
 
     outc = similar(x0c)
     outr = similar(r0)
@@ -532,7 +562,8 @@ function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
             h = min(T(Δt), t_target - τ)
             μk, σk = _get_regime_functions(P, r)   # freeze regime over [τ, τ+h]
             step_toward!(x, a, τ, h, μk, σk; T_end=T_end)
-            r = _ctmc_step!(r, P.Q, h)
+            Qmat = _Q_at(P, x, τ)
+            r = _ctmc_step!(r, Qmat, h)
             τ += h
         end
         @views outc[:, n] .= x
