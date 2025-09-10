@@ -614,15 +614,21 @@ ConditionalBridgeProcess(σ::T; κ::T=one(T), λ_b::T=zero(T), ε::T=T(0.1)) whe
 @inline _μ_zero(x, t) = zero.(x)
 @inline _σ_const(σ) = (x, t) -> σ
 
-# Place alternate anchor b beyond a along the line from x0 to a by ε * ||a-x0||
-@inline function _alt_anchor(a::AbstractVector{T}, x0::AbstractVector{T}, ε::T) where {T<:Real}
-    d = a .- x0
-    nd = norm(d)
-    if nd == zero(T)
+# Sample alternate anchor b uniformly in a D-ball of fixed radius r around a
+@inline function _alt_anchor(a::AbstractVector{T}, r::T) where {T<:Real}
+    if r == zero(T)
         return copy(a)
     end
-    dir = d ./ nd
-    return @. a + ε * nd * dir
+    Dlen = length(a)
+    z = randn(T, Dlen)
+    zn = sqrt(sum(abs2, z))
+    if zn == zero(T)
+        z[1] = one(T); zn = one(T)
+    end
+    z_unit = @. z / zn
+    u = rand(T)
+    r_ball = r * (u^(one(T)/T(Dlen)))
+    return @. a + r_ball * z_unit
 end
 
 # Hazard rate to switch to true endpoint: κ / (T_end - τ)
@@ -679,7 +685,7 @@ function endpoint_conditioned_sample(X0::ContinuousState{T},
         end
         @views x .= x0[:, n]
         @views a = x1[:, n]
-        b = _alt_anchor(a, view(x0, :, n), P.ε)
+        b = _alt_anchor(a, P.ε * P.σ)
         to_a = Ref(false)   # start by targeting b
         τ = zero(T)
         while τ < t_target
@@ -723,7 +729,7 @@ function endpoint_conditioned_sample(X0::ContinuousState{T},
         end
         @views x .= x0[:, n]
         @views a = x1[:, n]
-        b = _alt_anchor(a, view(x0, :, n), P.ε)
+        b = _alt_anchor(a, P.ε * P.σ)
         to_a = Ref(false)
         τ = zero(T)
         while τ < t_target
@@ -751,5 +757,127 @@ function endpoint_conditioned_sample(X0::ContinuousState{T},
     P::ConditionalBridgeProcess{T},
     tF::T, tB::T; Δt::Real=1e-3) where {T<:Real}
     N = size(tensor(X0), 2)
+    return endpoint_conditioned_sample(X0, X1, P, fill(tF, N), fill(tB, N); Δt=Δt)
+end
+
+# --- endpoint-conditioned sampling for ConditionalBridgeProcess (SwitchingSDEState) ---
+
+# Vector-of-times t[1:N] in [0,1] (T_end = 1)
+function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
+    X1::SwitchingSDEState{T},
+    P::ConditionalBridgeProcess{T},
+    t::AbstractVector{T};
+    Δt::Real=1e-3) where {T<:Real}
+
+    x0 = X0.continuous_state        # D×N
+    x1 = X1.continuous_state        # D×N
+    r0 = X0.discrete_state          # N
+    r1 = X1.discrete_state          # N (used only if t ≥ 1)
+    D, N = size(x0)
+    @assert size(x1) == (D, N)
+    @assert length(r0) == N
+    @assert length(r1) == N
+    @assert length(t)  == N
+
+    outc = similar(x0)
+    outr = similar(r0)
+    x = similar(x0, D)
+
+    @inbounds for n in 1:N
+        t_target = t[n]
+        if t_target ≤ zero(T)
+            @views outc[:, n] .= x0[:, n]
+            outr[n] = r0[n]
+            continue
+        end
+        if t_target ≥ one(T)
+            @views outc[:, n] .= x1[:, n]
+            outr[n] = r1[n]
+            continue
+        end
+        @views x .= x0[:, n]
+        @views a = x1[:, n]
+        b = _alt_anchor(a, P.ε * P.σ)
+        to_a = Ref(false)
+        τ = zero(T)
+        while τ < t_target
+            h = min(T(Δt), t_target - τ)
+            _conditional_bridge_step!(x, to_a, a, b, τ, h, P, one(T))
+            τ += h
+        end
+        @views outc[:, n] .= x
+        outr[n] = r0[n]
+    end
+    return SwitchingSDEState(outc, outr, X0.K; validate=false)
+end
+
+# Two-vectors (tF, tB) of the same length → per-column horizon T_end = tF[n]+tB[n], target tF[n]
+function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
+    X1::SwitchingSDEState{T},
+    P::ConditionalBridgeProcess{T},
+    tF::AbstractVector{T},
+    tB::AbstractVector{T};
+    Δt::Real=1e-3) where {T<:Real}
+
+    @assert length(tF) == length(tB)
+
+    x0 = X0.continuous_state
+    x1 = X1.continuous_state
+    r0 = X0.discrete_state
+    r1 = X1.discrete_state
+    D, N = size(x0)
+    @assert size(x1) == (D, N)
+    @assert length(r0) == N
+    @assert length(r1) == N
+    @assert N == length(tF)
+
+    outc = similar(x0)
+    outr = similar(r0)
+    x = similar(x0, D)
+
+    @inbounds for n in 1:N
+        T_end = tF[n] + tB[n]
+        t_target = tF[n]
+        if t_target ≤ zero(T)
+            @views outc[:, n] .= x0[:, n]
+            outr[n] = r0[n]
+            continue
+        end
+        if t_target ≥ T_end
+            @views outc[:, n] .= x1[:, n]
+            outr[n] = r1[n]
+            continue
+        end
+        @views x .= x0[:, n]
+        @views a = x1[:, n]
+        b = _alt_anchor(a, P.ε * P.σ)
+        to_a = Ref(false)
+        τ = zero(T)
+        while τ < t_target
+            h = min(T(Δt), t_target - τ)
+            _conditional_bridge_step!(x, to_a, a, b, τ, h, P, T_end)
+            τ += h
+        end
+        @views outc[:, n] .= x
+        outr[n] = r0[n]
+    end
+    return SwitchingSDEState(outc, outr, X0.K; validate=false)
+end
+
+# Scalar t replicated across columns (total horizon 1)
+function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
+    X1::SwitchingSDEState{T},
+    P::ConditionalBridgeProcess{T},
+    t::T; Δt::Real=1e-3) where {T<:Real}
+    N = size(X0.continuous_state, 2)
+    return endpoint_conditioned_sample(X0, X1, P, fill(t, N); Δt=Δt)
+end
+
+# Scalar (tF, tB) replicated across columns
+function endpoint_conditioned_sample(X0::SwitchingSDEState{T},
+    X1::SwitchingSDEState{T},
+    P::ConditionalBridgeProcess{T},
+    tF::T, tB::T; Δt::Real=1e-3) where {T<:Real}
+    N = size(X0.continuous_state, 2)
     return endpoint_conditioned_sample(X0, X1, P, fill(tF, N), fill(tB, N); Δt=Δt)
 end
