@@ -60,6 +60,20 @@ struct ContinuousState{T<:Real} <: State
 end
 
 """
+    ConditionalBridgeState(continuous_state::AbstractArray{<:Real}, anchor_state::AbstractArray{<:Integer})
+
+State for the `ConditionalBridgeProcess` that tracks both the continuous position and
+the current state of the 2-state CTMC controlling which endpoint anchor is active.
+
+- `continuous_state`: D×N array of positions (columns are independent paths)
+- `anchor_state`: length-N integer array with values 1 (anchor=a) or 2 (anchor=b)
+"""
+struct ConditionalBridgeState{T<:Real,I<:Integer} <: State
+    continuous_state::AbstractArray{T}
+    anchor_state::AbstractArray{I}   # 1 => to 'a', 2 => to 'b'
+end
+
+"""
     GaussianLikelihood(mu::AbstractArray, var::AbstractArray, log_norm_const::AbstractArray)
 
 Gaussian probability distribution over continuous states.
@@ -138,6 +152,7 @@ Base.copy(d::DiscreteState) = DiscreteState(d.K, copy(d.state))
 Base.copy(d::CategoricalLikelihood) = CategoricalLikelihood(copy(d.dist), copy(d.log_norm_const))
 Base.copy(d::ContinuousState) = ContinuousState(copy(d.state))
 Base.copy(d::GaussianLikelihood) = GaussianLikelihood(copy(d.mu), copy(d.var), copy(d.log_norm_const))
+Base.copy(d::ConditionalBridgeState) = ConditionalBridgeState(copy(d.continuous_state), copy(d.anchor_state))
 
 """
     tensor(d::Union{State, StateLikelihood})
@@ -152,6 +167,7 @@ tensor(d::CategoricalLikelihood) = d.dist
 tensor(d::GaussianLikelihood) = d.mu
 tensor(d::AbstractArray) = flatview(d)
 tensor(d::Real) = d
+tensor(d::ConditionalBridgeState) = flatview(d.continuous_state)
 
 """
     SwitchingSDEState(continuous_state::AbstractArray{<:Real}, discrete_state::AbstractArray{<:Integer}, K::Int)

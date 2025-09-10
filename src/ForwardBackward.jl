@@ -25,6 +25,7 @@ export
     SwitchingBM,
     SwitchingSDEProcess,
     ConditionalBridgeProcess,
+    ConditionalBridgeState,
     UniformDiscrete,
     UniformUnmasking,
     GeneralDiscrete,
