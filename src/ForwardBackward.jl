@@ -8,6 +8,7 @@ include("states.jl")
 include("propagation.jl")
 include("manifolds.jl")
 include("sdeprocess.jl")
+include("conditional_bridge.jl")
 
 export
     #Abstract Types
