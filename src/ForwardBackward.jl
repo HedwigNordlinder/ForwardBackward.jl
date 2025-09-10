@@ -23,6 +23,7 @@ export
     OrnsteinUhlenbeck,
     SwitchingBM,
     SwitchingSDEProcess,
+    ConditionalBridgeProcess,
     UniformDiscrete,
     UniformUnmasking,
     GeneralDiscrete,
