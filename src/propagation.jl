@@ -253,9 +253,13 @@ function endpoint_conditioned_sample(
         while t < target[ind]
             inc = min(T(Δt), target[ind] - t)
 
-            # Possibly switch regime within this small interval
-            λ = is_alt ? p.λ_orig : p.λ_alt
-            if 1 - exp(-λ * inc) > 0 && rand() < (1 - exp(-λ * inc))
+            # Diffuse current state
+            noise = (p.σ > 0) ? sqrt(p.σ * inc) * rand(Normal(0, 1)) : zero(T)
+            y = Xt[ind] + noise
+
+            # Possibly switch regime within this small interval using state-dependent rate
+            λ = is_alt ? p.λ_orig(y) : p.λ_alt(y)
+            if λ > 0 && rand() < (1 - exp(-λ * inc))
                 is_alt = !is_alt
             end
 
@@ -263,9 +267,7 @@ function endpoint_conditioned_sample(
             last_step = (t + inc) >= target[ind]
             q = last_step ? X1.continuous_state.state[ind] : (is_alt ? Xalt.state[ind] : X1.continuous_state.state[ind])
 
-            # Diffuse and step toward target with fraction inc/remaining
-            noise = (p.σ > 0) ? sqrt(p.σ * inc) * rand(Normal(0, 1)) : zero(T)
-            y = Xt[ind] + noise
+            # Step toward target with fraction inc/remaining
             remaining = max(tot[ind] - t, T(1e-12))
             frac = inc / remaining
             Xt[ind] = y + (q - y) * frac

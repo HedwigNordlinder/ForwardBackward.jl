@@ -180,5 +180,8 @@ struct SwitchBridgeProcess{T<:Real} <: ContinuousProcess
     λ_orig::Function # rate of switching to original endpoint, given state
 end
 
-SwitchBridgeProcess(σ::T, λ_alt::T, λ_orig::T) where {T} = SwitchBridgeProcess{T}(σ, λ_alt, λ_orig)
+# Primary constructor: rates as functions
+SwitchBridgeProcess(σ::T, λ_alt::Function, λ_orig::Function) where {T<:Real} = SwitchBridgeProcess{T}(σ, λ_alt, λ_orig)
 
+# Convenience: numeric rates wrapped as constant functions
+SwitchBridgeProcess(σ::T, λ_alt::Real, λ_orig::Real) where {T<:Real} = SwitchBridgeProcess{T}(σ, _->λ_alt, _->λ_orig)
