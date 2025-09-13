@@ -214,106 +214,64 @@ function backward!(dest::CategoricalLikelihood, source::CategoricalLikelihood, p
 end
 
 #To add: DiagonalizadCTMC, HQtPi
-# =============== SwitchingBM endpoint-conditioned sampler ====================
+# =============== Switching bridge endpoint-conditioned sampler ===============
 
-# Evaluate the state-dependent rate at a scalar; if states are vectors, use ‖x‖.
-# (Change this if you prefer a different reduction.)
-λ_at(P::SwitchingBM, x) = P.λ(x isa Number ? x : norm(x))
+"""
+    endpoint_conditioned_sample(X0::SwitchBridgeState, X1::SwitchBridgeState, p::SwitchBridgeProcess, tF, tB; Δt = 0.05, Xalt = X0.continuous_state)
 
-# One-shot frozen-rate mirror bridge at time t ∈ (0,1).
-# Exact for constant λ; first-order accurate if λ depends on state.
-function _switchingbm_bridge!(y::AbstractVector{T}, x::AbstractVector{T}, a::AbstractVector{T},
-                              t::T, σ::T, λ0::T) where {T<:Real}
-    if t ≤ zero(T)
-        y .= x; return y
-    elseif t ≥ one(T)
-        y .= a; return y
-    end
-    τ  = one(T) - t
-    s  = σ*sqrt(t*τ)                 # Brownian-bridge std at time t
-    αt = 0.5*(1 + exp(-2*λ0*t))      # even-parity on [0,t]
-    ατ = 0.5*(1 + exp(-2*λ0*τ))      # even-parity on [t,1]
+Step-toward approximation for a process that switches between two Brownian bridges:
+one toward the provided endpoint `X1.continuous_state` ("original"), and one toward
+an alternative decoy endpoint `Xalt` (defaults to the start location).
 
-    # log-weights for (i,j) ∈ {+1,-1}×{+1,-1}
-    lp = (i,j)-> log(i==+1 ? αt : 1-αt) + log(j==+1 ? ατ : 1-ατ)
-    # Gaussian normalizer from product φ(i x; j a, σ²) (constants drop in softmax)
-    lg = (i,j)-> - (sum(abs2, @. (i*x) - (j*a))) / (2*σ^2)
+- Switching is a 2-state CTMC with constant rates: from original→alternative at `λ_alt`
+  and alternative→original at `λ_orig`.
+- Within a small step `Δt`, we optionally switch regime, add Brownian noise with
+  diffusion scale `σ`, then take a geodesic-like step toward the current target with
+  fraction `Δt / remaining_time` (Euclidean version of the manifold step-toward).
 
-    Lpp = lp(+1,+1) + lg(+1,+1)
-    Lpm = lp(+1,-1) + lg(+1,-1)
-    Lmp = lp(-1,+1) + lg(-1,+1)
-    Lmm = lp(-1,-1) + lg(-1,-1)
-    m   = max(max(Lpp,Lpm), max(Lmp,Lmm))
-    wpp = exp(Lpp - m); wpm = exp(Lpm - m); wmp = exp(Lmp - m); wmm = exp(Lmm - m)
-    Z   = wpp + wpm + wmp + wmm
-    wpp /= Z; wpm /= Z; wmp /= Z; wmm /= Z
+This mirrors the manifold stepping scheme but in Euclidean coordinates.
+"""
+function endpoint_conditioned_sample(
+    X0::SwitchBridgeState,
+    X1::SwitchBridgeState,
+    p::SwitchBridgeProcess,
+    tF,
+    tB;
+    Δt = 0.05,
+    Xalt::ContinuousState = X0.continuous_state,
+)
+    T = eltype(flatview(X0.continuous_state.state))
+    # Broadcast time grids to the state shape
+    tot = zeros(T, size(X0.continuous_state.state)) .+ expand(tF .+ tB, ndims(X0.continuous_state.state))
+    target = zeros(T, size(X0.continuous_state.state)) .+ expand(tF, ndims(X0.continuous_state.state))
 
-    # sample (i,j)
-    u = rand()
-    i = +1; j = +1
-    if u > wpp
-        u -= wpp
-        if u ≤ wpm
-            i=+1; j=-1
-        elseif (u -= wpm) ≤ wmp
-            i=-1; j=+1
-        else
-            i=-1; j=-1
+    Xt = copy(X0.continuous_state.state)
+    is_alt = X0.is_alternative
+
+    for ind in CartesianIndices(Xt)
+        t = T(0)
+        while t < target[ind]
+            inc = min(T(Δt), target[ind] - t)
+
+            # Possibly switch regime within this small interval
+            λ = is_alt ? p.λ_orig : p.λ_alt
+            if 1 - exp(-λ * inc) > 0 && rand() < (1 - exp(-λ * inc))
+                is_alt = !is_alt
+            end
+
+            # Select current bridge target
+            q = is_alt ? Xalt.state[ind] : X1.continuous_state.state[ind]
+
+            # Diffuse and step toward target with fraction inc/remaining
+            noise = (p.σ > 0) ? sqrt(p.σ * inc) * rand(Normal(0, 1)) : zero(T)
+            y = Xt[ind] + noise
+            remaining = max(tot[ind] - t, T(1e-12))
+            frac = inc / remaining
+            Xt[ind] = y + (q - y) * frac
+
+            t += inc
         end
     end
 
-    # mean μ_{ij} = (1−t) i x + t j a ; variance s^2 I
-    @. y = (τ * (i*x)) + (t * (j*a)) + s * randn(T)
-    return y
-end
-
-# Vector-of-times API that Flowfusion calls: endpoint_conditioned_sample(X0, X1, P, t::Vector)
-function endpoint_conditioned_sample(X0::ContinuousState{T},
-                                     X1::ContinuousState{T},
-                                     P::SwitchingBM{T},
-                                     t::AbstractVector{T}) where {T<:Real}
-    x0 = tensor(X0)         # D×N
-    a1 = tensor(X1)         # D×N
-    D, N = size(x0)
-    @assert size(a1) == (D, N)
-    @assert length(t) == N
-
-    out = similar(x0)
-    y   = zeros(T, D)
-    @inbounds for n in 1:N
-        λ0 = λ_at(P, view(x0, :, n))   # freeze λ at the left endpoint for this sample
-        _switchingbm_bridge!(y, view(x0, :, n), view(a1, :, n), t[n], P.σ, λ0)
-        @views out[:, n] .= y
-    end
-    return ContinuousState(out)
-end
-
-# Two-vector API used internally by ForwardBackward/Flowfusion:
-# interpret tF, tB as proportional parts of total 1.0 and map to t = tF/(tF+tB).
-function endpoint_conditioned_sample(X0::ContinuousState{T},
-                                     X1::ContinuousState{T},
-                                     P::SwitchingBM{T},
-                                     tF::AbstractVector{T},
-                                     tB::AbstractVector{T}) where {T<:Real}
-    @assert length(tF) == length(tB)
-    t = tF ./ (tF .+ tB)
-    return endpoint_conditioned_sample(X0, X1, P, t)
-end
-# --- scalar t in [0,1) ---
-function endpoint_conditioned_sample(X0::ContinuousState{T},
-    X1::ContinuousState{T},
-    P::SwitchingBM{T},
-    t::T) where {T<:Real}
-N = size(tensor(X0), 2)
-return endpoint_conditioned_sample(X0, X1, P, fill(t, N))
-end
-
-# --- scalar (tF, tB) ---
-function endpoint_conditioned_sample(X0::ContinuousState{T},
-    X1::ContinuousState{T},
-    P::SwitchingBM{T},
-    tF::T, tB::T) where {T<:Real}
-t = tF / (tF + tB)          # total horizon is 1 in Flowfusion
-N = size(tensor(X0), 2)
-return endpoint_conditioned_sample(X0, X1, P, fill(t, N))
+    return SwitchBridgeState(ContinuousState(Xt), is_alt)
 end

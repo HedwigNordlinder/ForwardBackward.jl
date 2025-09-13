@@ -59,19 +59,6 @@ struct ContinuousState{T<:Real} <: State
     state::AbstractArray{T}
 end
 
-"""
-    ConditionalBridgeState(continuous_state::AbstractArray{<:Real}, anchor_state::AbstractArray{<:Integer})
-
-State for the `ConditionalBridgeProcess` that tracks both the continuous position and
-the current state of the 2-state CTMC controlling which endpoint anchor is active.
-
-- `continuous_state`: D×N array of positions (columns are independent paths)
-- `anchor_state`: length-N integer array with values 1 (anchor=a) or 2 (anchor=b)
-"""
-struct ConditionalBridgeState{T<:Real,I<:Integer} <: State
-    continuous_state::AbstractArray{T}
-    anchor_state::AbstractArray{I}   # 1 => to 'a', 2 => to 'b'
-end
 
 """
     GaussianLikelihood(mu::AbstractArray, var::AbstractArray, log_norm_const::AbstractArray)
@@ -152,7 +139,6 @@ Base.copy(d::DiscreteState) = DiscreteState(d.K, copy(d.state))
 Base.copy(d::CategoricalLikelihood) = CategoricalLikelihood(copy(d.dist), copy(d.log_norm_const))
 Base.copy(d::ContinuousState) = ContinuousState(copy(d.state))
 Base.copy(d::GaussianLikelihood) = GaussianLikelihood(copy(d.mu), copy(d.var), copy(d.log_norm_const))
-Base.copy(d::ConditionalBridgeState) = ConditionalBridgeState(copy(d.continuous_state), copy(d.anchor_state))
 
 """
     tensor(d::Union{State, StateLikelihood})
@@ -167,88 +153,8 @@ tensor(d::CategoricalLikelihood) = d.dist
 tensor(d::GaussianLikelihood) = d.mu
 tensor(d::AbstractArray) = flatview(d)
 tensor(d::Real) = d
-tensor(d::ConditionalBridgeState) = flatview(d.continuous_state)
 
-"""
-    SwitchingSDEState(continuous_state::AbstractArray{<:Real}, discrete_state::AbstractArray{<:Integer}, K::Int)
-
-Representation of a switching SDE state that combines continuous SDE dynamics with discrete CTMC state switching.
-
-This state type is used for SDEs where the drift and diffusion coefficients come from arrays of admissible values,
-and the selection of which drift/diffusion to use follows a Continuous Time Markov Chain (CTMC).
-
-# Parameters
-- `continuous_state`: Array of continuous state values (the SDE component)
-- `discrete_state`: Array of discrete state indices indicating which drift/diffusion regime is active
-- `K`: Number of discrete states (regimes) in the CTMC
-
-# Examples
-```julia
-# Create a switching SDE state with 2D continuous dynamics and 3 discrete regimes
-continuous_vals = randn(2, 100)  # 2D continuous state, 100 particles
-discrete_vals = rand(1:3, 100)   # discrete regime indices, 100 particles
-state = SwitchingSDEState(continuous_vals, discrete_vals, 3)
-```
-"""
-struct SwitchingSDEState{T<:Real, I<:Integer} <: State
-    continuous_state::AbstractArray{T}
-    discrete_state::AbstractArray{I}
-    K::Int  # number of discrete states in the CTMC
-    
-    # Inner constructor with validation
-    function SwitchingSDEState{T,I}(continuous_state::AbstractArray{T}, discrete_state::AbstractArray{I}, K::Int; validate::Bool=true) where {T<:Real, I<:Integer}
-        if validate && length(discrete_state) > 0
-            @assert maximum(discrete_state) <= K "Discrete state values must be <= K"
-            @assert minimum(discrete_state) >= 1 "Discrete state values must be >= 1"
-        end
-        return new{T,I}(continuous_state, discrete_state, K)
-    end
-end
-
-# Outer constructor for type inference
-SwitchingSDEState(continuous_state::AbstractArray{T}, discrete_state::AbstractArray{I}, K::Int; validate::Bool=true) where {T<:Real, I<:Integer} = 
-    SwitchingSDEState{T,I}(continuous_state, discrete_state, K; validate=validate)
-
-"""
-    SwitchingSDELikelihood(continuous_likelihood::GaussianLikelihood, discrete_likelihood::CategoricalLikelihood)
-
-Probability distribution over switching SDE states, combining Gaussian distributions for the continuous component
-and categorical distributions for the discrete CTMC component.
-
-# Parameters
-- `continuous_likelihood`: Gaussian likelihood for the continuous SDE component
-- `discrete_likelihood`: Categorical likelihood for the discrete CTMC component
-"""
-struct SwitchingSDELikelihood{T<:Real} <: StateLikelihood
-    continuous_likelihood::GaussianLikelihood{T}
-    discrete_likelihood::CategoricalLikelihood{T}
-end
-
-# Copy methods
-Base.copy(d::SwitchingSDEState) = SwitchingSDEState(copy(d.continuous_state), copy(d.discrete_state), d.K)
-Base.copy(d::SwitchingSDELikelihood) = SwitchingSDELikelihood(copy(d.continuous_likelihood), copy(d.discrete_likelihood))
-
-# Tensor representation - returns the continuous component (most commonly needed)
-tensor(d::SwitchingSDEState) = flatview(d.continuous_state)
-
-# Stochastic conversion - convert deterministic state to likelihood
-function stochastic(T::Type, o::SwitchingSDEState)
-    continuous_likelihood = stochastic(T, ContinuousState(o.continuous_state))
-    discrete_likelihood = stochastic(T, DiscreteState(o.K, o.discrete_state))
-    return SwitchingSDELikelihood(continuous_likelihood, discrete_likelihood)
-end
-stochastic(o::SwitchingSDEState) = stochastic(Float64, o)
-
-# Random sampling from likelihood
-function Base.rand(d::SwitchingSDELikelihood)
-    continuous_sample = rand(d.continuous_likelihood)
-    discrete_sample = rand(d.discrete_likelihood)
-    return SwitchingSDEState(continuous_sample.state, discrete_sample.state, discrete_sample.K)
-end
-
-# Pointwise product for SwitchingSDELikelihood
-function ⊙(a::SwitchingSDELikelihood, b::SwitchingSDELikelihood; norm = true)
-    continuous_product = a.continuous_likelihood ⊙ b.continuous_likelihood
-    discrete_product = a.discrete_likelihood ⊙ b.discrete_likelihood
-    return SwitchingSDELikelihood(continuous_product, discrete_product)
+struct SwitchBridgeState{T<:Real} <: State
+    continuous_state::ContinuousState{T}
+    is_alternative::Bool
 end

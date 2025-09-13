@@ -25,14 +25,7 @@ abstract type DiscreteProcess <: Process end
 Base type for processes with continuous state spaces.
 """
 abstract type ContinuousProcess <: Process end
-struct SwitchingBM{T} <: ContinuousProcess
-    κ::T            # kept for compatibility; set to 0.0 here (Brownian, no drift)
-    σ::T            # diffusion scale
-    λ::Function     # state-dependent jump rate λ(x)
-end
 
-# minimal fix: default to κ = 0 for the Brownian case
-SwitchingBM(σ::T, λ::Function) where {T} = SwitchingBM(zero(T), σ, λ)
 
 """
     BrownianMotion(δ::T, v::T) where T <: Real
@@ -180,3 +173,12 @@ function PiQ(r::T,π::Vector{T}; normalize=true) where T <: Real
 end
 
 PiQ(π::Vector{T}; normalize=true) where T <: Real = PiQ(T(1.0), π; normalize=normalize)
+
+struct SwitchBridgeProcess{T<:Real} <: ContinuousProcess
+    σ::T # diffusion scale
+    λ_alt::Function # rate of switching to alternative endpoint, given state
+    λ_orig::Function # rate of switching to original endpoint, given state
+end
+
+SwitchBridgeProcess(σ::T, λ_alt::T, λ_orig::T) where {T} = SwitchBridgeProcess{T}(σ, λ_alt, λ_orig)
+
