@@ -23,6 +23,7 @@ export
     BrownianMotion,
     OrnsteinUhlenbeck,
     SwitchingBM,
+    SwitchBridgeProcess,
     SwitchingSDEProcess,
     ConditionalBridgeProcess,
     ConditionalBridgeState,
@@ -37,6 +38,7 @@ export
     DiscreteState,
     ContinuousState,
     SwitchingSDEState,
+    SwitchBridgeState,
     #Functions
     endpoint_conditioned_sample,
     interpolate,

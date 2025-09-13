@@ -259,8 +259,9 @@ function endpoint_conditioned_sample(
                 is_alt = !is_alt
             end
 
-            # Select current bridge target
-            q = is_alt ? Xalt.state[ind] : X1.continuous_state.state[ind]
+            # Select current bridge target; force true endpoint at the terminal step
+            last_step = (t + inc) >= target[ind]
+            q = last_step ? X1.continuous_state.state[ind] : (is_alt ? Xalt.state[ind] : X1.continuous_state.state[ind])
 
             # Diffuse and step toward target with fraction inc/remaining
             noise = (p.σ > 0) ? sqrt(p.σ * inc) * rand(Normal(0, 1)) : zero(T)
@@ -273,5 +274,7 @@ function endpoint_conditioned_sample(
         end
     end
 
+    # If we are exactly at the terminal time for any entry (tB == 0), the target is X1.
+    # The returned regime flag reflects the regime at the sampling time.
     return SwitchBridgeState(ContinuousState(Xt), is_alt)
 end
