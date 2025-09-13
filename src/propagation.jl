@@ -241,42 +241,58 @@ function endpoint_conditioned_sample(
     Xalt::ContinuousState = X0.continuous_state,
 )
     T = eltype(flatview(X0.continuous_state.state))
-    # Broadcast time grids to the state shape
-    tot = zeros(T, size(X0.continuous_state.state)) .+ expand(tF .+ tB, ndims(X0.continuous_state.state))
-    target = zeros(T, size(X0.continuous_state.state)) .+ expand(tF, ndims(X0.continuous_state.state))
 
-    Xt = copy(X0.continuous_state.state)
-    is_alt = X0.is_alternative
+    # Shapes
+    Xt = copy(X0.continuous_state.state)             # D × N (typical)
+    D = size(Xt, 1)
+    N = size(Xt)[end]
 
-    for ind in CartesianIndices(Xt)
+    # Per-sample forward/backward horizons
+    tFv = (length(tF) == 1) ? fill(T(tF), N) : T.(vec(tF))
+    tBv = (length(tB) == 1) ? fill(T(tB), N) : T.(vec(tB))
+    (length(tFv) == N && length(tBv) == N) || throw(ArgumentError("tF/tB must have length 1 or match number of samples ($N)"))
+
+    # Regime flags per sample
+    is_alt = copy(X0.is_alternative)
+    length(is_alt) == N || throw(ArgumentError("is_alternative length $(length(is_alt)) must match number of samples $N"))
+
+    # Work per sample so the discrete regime is shared across all dimensions
+    for j in 1:N
         t = T(0)
-        while t < target[ind]
-            inc = min(T(Δt), target[ind] - t)
+        tot = tFv[j] + tBv[j]
+        target = tFv[j]
 
-            # Diffuse current state
-            noise = (p.σ > 0) ? sqrt(p.σ * inc) * rand(Normal(0, 1)) : zero(T)
-            y = Xt[ind] + noise
+        # View into current sample vector
+        x = view(Xt, :, j)
+        xalt = view(Xalt.state, :, j)
+        x1 = view(X1.continuous_state.state, :, j)
 
-            # Possibly switch regime within this small interval using state-dependent rate
-            λ = is_alt ? p.λ_orig(y) : p.λ_alt(y)
-            if λ > 0 && rand() < (1 - exp(-λ * inc))
-                is_alt = !is_alt
+        while t < target
+            inc = min(T(Δt), target - t)
+
+            # Diffuse all dimensions jointly
+            if p.σ > 0
+                @. x = x + sqrt(p.σ * inc) * rand(Normal(0, 1))
             end
 
-            # Select current bridge target; force true endpoint at the terminal step
-            last_step = (t + inc) >= target[ind]
-            q = last_step ? X1.continuous_state.state[ind] : (is_alt ? Xalt.state[ind] : X1.continuous_state.state[ind])
+            # Possibly switch within this interval (rate may depend on state)
+            λ = is_alt[j] ? p.λ_orig(x) : p.λ_alt(x)
+            if λ > 0 && rand() < (1 - exp(-λ * inc))
+                is_alt[j] = !is_alt[j]
+            end
 
-            # Step toward target with fraction inc/remaining
-            remaining = max(tot[ind] - t, T(1e-12))
+            # Current target; force original endpoint at the terminal step only
+            last_step = (t + inc) >= target
+            q = last_step ? x1 : (is_alt[j] ? xalt : x1)
+
+            # Geodesic-like step-to-target
+            remaining = max(tot - t, T(1e-12))
             frac = inc / remaining
-            Xt[ind] = y + (q - y) * frac
+            @. x = x + (q - x) * frac
 
             t += inc
         end
     end
 
-    # If we are exactly at the terminal time for any entry (tB == 0), the target is X1.
-    # The returned regime flag reflects the regime at the sampling time.
     return SwitchBridgeState(ContinuousState(Xt), is_alt)
 end

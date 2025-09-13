@@ -156,5 +156,22 @@ tensor(d::Real) = d
 
 struct SwitchBridgeState{T<:Real} <: State
     continuous_state::ContinuousState{T}
-    is_alternative::Bool
+    # Regime flag per sample (columns of the state). For a single sample this
+    # will be a length-1 BitVector. Using a vector (instead of a scalar Bool)
+    # avoids unintended cross-sample coupling.
+    is_alternative::BitVector
+end
+
+# Convenience constructors
+# - If a scalar Bool is provided, broadcast it to all samples
+# - If an AbstractVector{Bool} is provided, convert to BitVector (and check size)
+function SwitchBridgeState(x::ContinuousState{T}, b::Bool) where {T<:Real}
+    nsamples = size(x.state)[end]
+    return SwitchBridgeState(x, BitVector(fill(b, nsamples)))
+end
+
+function SwitchBridgeState(x::ContinuousState{T}, b::AbstractVector{Bool}) where {T<:Real}
+    nsamples = size(x.state)[end]
+    length(b) == nsamples || throw(ArgumentError("Length of is_alternative ($(length(b))) must match number of samples ($nsamples)"))
+    return SwitchBridgeState(x, BitVector(b))
 end
