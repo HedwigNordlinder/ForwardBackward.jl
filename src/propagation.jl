@@ -275,9 +275,32 @@ function endpoint_conditioned_sample(
                 @. x = x + sqrt(p.σ * inc) * rand(Normal(0, 1))
             end
 
-            # Possibly switch within this interval (rate may depend on state)
-            λ = is_alt[j] ? p.λ_orig(x) : p.λ_alt(x)
-            if λ > 0 && rand() < (1 - exp(-λ * inc))
+            # Possibly switch within this interval using Doob h-transform so
+            # the discrete CTMC is conditioned to be in the original regime at
+            # the terminal time `target`.
+            # Base rates (may be state-dependent):
+            α = p.λ_alt(x)   # orig -> alt
+            β = p.λ_orig(x)  # alt  -> orig
+
+            # Remaining time until the conditioning horizon (avoid 0):
+            τ = max(target - t, T(1e-8))
+            γ = α + β
+            if γ > 0
+                πo = β / γ
+                e = exp(-γ * τ)
+                h_o = πo + (1 - πo) * e          # P(orig at τ | start=orig)
+                h_a = πo * (1 - e)               # P(orig at τ | start=alt)
+
+                # Doob-transformed instantaneous rates
+                α_eff = α * (h_a / max(h_o, T(1e-12)))  # orig -> alt
+                β_eff = β * (h_o / max(h_a, T(1e-12)))  # alt  -> orig
+            else
+                α_eff = T(0)
+                β_eff = T(0)
+            end
+
+            λ_eff = is_alt[j] ? β_eff : α_eff
+            if λ_eff > 0 && rand() < (1 - exp(-λ_eff * inc))
                 is_alt[j] = !is_alt[j]
             end
 
