@@ -284,7 +284,8 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
         timestep = min(ϵ, t - curr_time)
         drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, curr_time, curr_time+timestep, 1)
         next_bridge_point = next_drift_state.state == 1 ? X1.cont_state : X0.cont_state
-        cont_state = rand(endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, timestep, 1))
+        #cont_state = rand(endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, timestep, 1))
+        cont_state=endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, timestep, 1)
         curr_time += timestep
         # I think this is the correct way to step forward
     end
@@ -365,7 +366,7 @@ function endpoint_conditioned_sample(X0::DiscreteState, X1::DiscreteState, P::Ge
         println(X0.state)
         println(X1.state)
         Qprime = bridge_generator(P.Q, ta, X0.state, tc, X1.state)(ta + elapsed_time)
-        state = DiscreteState(X0.K,rand(forward(stochastic(state),GeneralDiscrete(Qprime),timestep)))
+        state = forward(state,GeneralDiscrete(Qprime),timestep)
         elapsed_time += timestep
     end
     return DiscreteState(X0.K, state)
