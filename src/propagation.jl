@@ -291,11 +291,9 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     return AuxillaryState(drift_state, cont_state)
 end
 
-function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t::AbstractArray; kwargs...)
-    endpoint_conditioned_sample(X0, X1, P, t, clamp.(1 .- t, 0, 1); kwargs...)
-end
 
-function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t; kwargs...)
+
+function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t::AbstractArray; kwargs...)
     Xt = AuxillaryState(copy(X0.ctmc_state), copy(X0.cont_state))
     axes(X0.ctmc_state.state) == axes(t) || error("Discrete state axes must match time grid axes.")
     axes(X1.ctmc_state.state) == axes(t) || error("Discrete state axes must match time grid axes.")
