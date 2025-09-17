@@ -270,3 +270,19 @@ function backward!(dest::CategoricalLikelihood, source::CategoricalLikelihood, p
 end
 
 #To add: DiagonalizadCTMC, HQtPi
+
+function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, tF, tB)
+    Error("Not allowed for this type of process, only single time argument may be passed.")
+end
+
+function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t; ϵ = 1e-6)
+    
+    drift_state = copy(X0.ctmc_state)
+    cont_state = copy(X0.cont_state)
+    for i in 1:ϵ:t
+        drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, t, 1)
+        next_bridge_point = next_drift_state.state == 1 ? X1.cont_state : X0.cont_state
+        cont_state = rand(endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, ϵ, 1))
+    end
+    return AuxillaryState(drift_state, cont_state)
+end

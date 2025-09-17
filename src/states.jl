@@ -152,3 +152,9 @@ tensor(d::CategoricalLikelihood) = d.dist
 tensor(d::GaussianLikelihood) = d.mu
 tensor(d::AbstractArray) = flatview(d)
 tensor(d::Real) = d
+
+# this should contain a tuple of the component states
+struct AuxillaryState <: State
+    ctmc_state::DiscreteState
+    cont_state::ContinuousState
+end
