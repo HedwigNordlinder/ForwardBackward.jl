@@ -358,7 +358,7 @@ function bridge_generator(Q::AbstractMatrix, t1::Real, x1::Integer, t2::Real, x2
 end
 
 
-function endpoint_conditioned_sample(X0::DiscreteState, X1::Discretetate, P::GeneralDiscrete, ta, tb, tc; ϵ = 1e-6)
+function endpoint_conditioned_sample(X0::DiscreteState, X1::DiscreteState, P::GeneralDiscrete, ta, tb, tc; ϵ = 1e-6)
 
     elapsed_time = 0
     state = copy(X0.state)    
