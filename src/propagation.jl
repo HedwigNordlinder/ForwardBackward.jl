@@ -310,6 +310,9 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
             DiscreteState(X1.ctmc_state.K, view(X1.ctmc_state.state, idx...)),
             ContinuousState(view(X1.cont_state.state, prefix..., idx...))
         )
+        println(typeof(x0))
+        println(typeof(x1))
+        println(typeof(t[I]))
         sample = endpoint_conditioned_sample(x0, x1, P, t[I]; kwargs...)
         copyto!(view(Xt.ctmc_state.state, idx...), sample.ctmc_state.state)
         copyto!(view(Xt.cont_state.state, prefix..., idx...), sample.cont_state.state)
