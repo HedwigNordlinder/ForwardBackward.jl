@@ -295,15 +295,14 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     endpoint_conditioned_sample(X0, X1, P, t, clamp.(1 .- t, 0, 1); kwargs...)
 end
 
-function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, tF::AbstractArray, tB::AbstractArray; kwargs...)
-    axes(tF) == axes(tB) || error("Forward and backward time grids must share the same axes.")
+function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t; kwargs...)
     Xt = AuxillaryState(copy(X0.ctmc_state), copy(X0.cont_state))
-    axes(X0.ctmc_state.state) == axes(tF) || error("Discrete state axes must match time grid axes.")
-    axes(X1.ctmc_state.state) == axes(tF) || error("Discrete state axes must match time grid axes.")
-    prefix_len = ndims(X0.cont_state.state) - ndims(tF)
+    axes(X0.ctmc_state.state) == axes(t) || error("Discrete state axes must match time grid axes.")
+    axes(X1.ctmc_state.state) == axes(t) || error("Discrete state axes must match time grid axes.")
+    prefix_len = ndims(X0.cont_state.state) - ndims(t)
     prefix_len < 0 && error("Cannot broadcast AuxillaryState over time array with higher rank.")
     prefix = ntuple(_ -> Colon(), prefix_len)
-    for I in CartesianIndices(tF)
+    for I in CartesianIndices(t)
         idx = Tuple(I)
         x0 = AuxillaryState(
             DiscreteState(X0.ctmc_state.K, view(X0.ctmc_state.state, idx...)),
@@ -313,7 +312,7 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
             DiscreteState(X1.ctmc_state.K, view(X1.ctmc_state.state, idx...)),
             ContinuousState(view(X1.cont_state.state, prefix..., idx...))
         )
-        sample = endpoint_conditioned_sample(x0, x1, P, tF[I], tB[I]; kwargs...)
+        sample = endpoint_conditioned_sample(x0, x1, P, t[I]; kwargs...)
         copyto!(view(Xt.ctmc_state.state, idx...), sample.ctmc_state.state)
         copyto!(view(Xt.cont_state.state, prefix..., idx...), sample.cont_state.state)
     end
