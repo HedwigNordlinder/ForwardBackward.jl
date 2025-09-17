@@ -295,24 +295,22 @@ end
 
 function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t::AbstractArray; kwargs...)
     Xt = AuxillaryState(copy(X0.ctmc_state), copy(X0.cont_state))
-    axes(X0.ctmc_state.state) == axes(t) || error("Discrete state axes must match time grid axes.")
-    axes(X1.ctmc_state.state) == axes(t) || error("Discrete state axes must match time grid axes.")
     prefix_len = ndims(X0.cont_state.state) - ndims(t)
     prefix_len < 0 && error("Cannot broadcast AuxillaryState over time array with higher rank.")
     prefix = ntuple(_ -> Colon(), prefix_len)
     for I in CartesianIndices(t)
         idx = Tuple(I)
         x0 = AuxillaryState(
-            DiscreteState(X0.ctmc_state.K, view(X0.ctmc_state.state, idx...)),
+            DiscreteState(X0.ctmc_state.K, X0.ctmc_state.state),
             ContinuousState(view(X0.cont_state.state, prefix..., idx...))
         )
         x1 = AuxillaryState(
-            DiscreteState(X1.ctmc_state.K, view(X1.ctmc_state.state, idx...)),
+            DiscreteState(X0.ctmc_state.K, X1.ctmc_state.state),
             ContinuousState(view(X1.cont_state.state, prefix..., idx...))
         )
 
         sample = endpoint_conditioned_sample(x0, x1, P, t[I])
-        copyto!(view(Xt.ctmc_state.state, idx...), sample.ctmc_state.state)
+        copyto!(Xt.ctmc_state.state, sample.ctmc_state.state)
         copyto!(view(Xt.cont_state.state, prefix..., idx...), sample.cont_state.state)
     end
     return Xt
