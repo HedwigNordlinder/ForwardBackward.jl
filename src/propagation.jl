@@ -317,3 +317,57 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     end
     return Xt
 end
+
+function bridge_generator(Q::AbstractMatrix, t1::Real, x1::Integer, t2::Real, x2::Integer; eps::Real=1e-12)
+    n = size(Q,1)
+    size(Q,1) == size(Q,2) || throw(ArgumentError("Q must be square"))
+    t2 > t1 || throw(ArgumentError("Require t2 > t1 (got t1=$t1, t2=$t2)"))
+    1 ≤ x1 ≤ n || throw(ArgumentError("x1 out of range 1:$n"))
+    1 ≤ x2 ≤ n || throw(ArgumentError("x2 out of range 1:$n"))
+
+    e_x2 = zeros(eltype(Q), n); e_x2[x2] = one(eltype(Q))
+
+    # Return a closure Q'(t)
+    function Qprime(t::Real)
+        (t1 ≤ t < t2) || throw(ArgumentError("t must lie in [t1, t2): got t=$t, interval=[$t1, $t2)"))
+        # h(t) = P(X_{t2}=x2 | X_t = ·) as a column vector
+        H = exp((t2 - t) * Q) * e_x2
+        if eps > 0
+            # Clamp to avoid division by 0 when extremely close to t2
+            H = max.(H, eps)
+        end
+        # Off-diagonals: q'_{ij}(t) = q_{ij} * h_j / h_i
+        Qoff = similar(Q)
+        @inbounds for i in 1:n, j in 1:n
+            if i == j
+                Qoff[i,j] = zero(eltype(Q))
+            else
+                Qoff[i,j] = Q[i,j] * (H[j] / H[i])
+            end
+        end
+        # Diagonals: make rows sum to zero
+        Qdiag = -sum(Qoff, dims=2)
+        Qp = copy(Qoff)
+        @inbounds for i in 1:n
+            Qp[i,i] = Qdiag[i]
+        end
+        return Qp
+    end
+
+    return Qprime
+end
+
+
+function endpoint_conditioned_sample(X0::DiscreteState, X1::Discretetate, P::GeneralDiscrete, ta, tb, tc; ϵ = 1e-6)
+
+    elapsed_time = 0
+    state = copy(X0.state)    
+    while elapsed_time < tb - ta
+        timestep = min(ϵ, (tb - ta) - elapsed_time)
+        Qprime = bridge_generator(P.Q, ta, X0.state, tc, X1.state)(ta + elapsed_time)
+        state = rand(forward(stochastic(state),GeneralDiscrete(Qprime),timestep))
+        elapsed_time += timestep
+    end
+    return DiscreteState(X0.K, state)
+
+end
