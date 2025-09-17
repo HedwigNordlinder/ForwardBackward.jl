@@ -44,6 +44,8 @@ export
     ManifoldState,
     perturb!,
     perturb,
-    expand
+    expand,
+    AuxillaryProcess,
+    AuxillaryState
     
 end
