@@ -279,10 +279,14 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     
     drift_state = copy(X0.ctmc_state)
     cont_state = copy(X0.cont_state)
-    for i in 1:ϵ:t
-        drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, t, 1)
+    curr_time = 0
+    while curr_time < t
+        timestep = min(ϵ, t - curr_time)
+        drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, t,t+timestep, 1)
         next_bridge_point = next_drift_state.state == 1 ? X1.cont_state : X0.cont_state
-        cont_state = rand(endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, ϵ, 1))
+        cont_state = rand(endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, timestep, 1))
+        curr_time += timestep
+        # I think this is the correct way to step forward
     end
     return AuxillaryState(drift_state, cont_state)
 end
