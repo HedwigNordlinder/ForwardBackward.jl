@@ -282,7 +282,7 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     curr_time = 0
     while curr_time < t
         timestep = min(ϵ, t - curr_time)
-        drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, t,t+timestep, 1)
+        drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, curr_time, curr_time+timestep, 1)
         next_bridge_point = next_drift_state.state == 1 ? X1.cont_state : X0.cont_state
         cont_state = rand(endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, timestep, 1))
         curr_time += timestep
@@ -364,6 +364,8 @@ function endpoint_conditioned_sample(X0::DiscreteState, X1::DiscreteState, P::Ge
     state = copy(X0.state)    
     while elapsed_time < tb - ta
         timestep = min(ϵ, (tb - ta) - elapsed_time)
+        println(typeof(X0.state))
+        println(typeof(X1.state))
         Qprime = bridge_generator(P.Q, ta, X0.state, tc, X1.state)(ta + elapsed_time)
         state = rand(forward(stochastic(state),GeneralDiscrete(Qprime),timestep))
         elapsed_time += timestep
