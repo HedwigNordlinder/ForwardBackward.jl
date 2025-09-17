@@ -272,7 +272,7 @@ end
 #To add: DiagonalizadCTMC, HQtPi
 
 function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, tF, tB)
-    Error("Not allowed for this type of process, only single time argument may be passed.")
+    error("Not allowed for this type of process, only single time argument may be passed.")
 end
 
 function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t; ϵ = 1e-6)
