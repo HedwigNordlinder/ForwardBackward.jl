@@ -291,29 +291,3 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     return AuxillaryState(drift_state, cont_state)
 end
 
-function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t::AbstractArray; kwargs...)
-    ctmc_state = similar(X0.ctmc_state.state)
-    cont_state = similar(X0.cont_state.state)
-    prefix_len = ndims(X0.cont_state.state) - ndims(t)
-    prefix_len < 0 && error("Cannot broadcast AuxillaryState over time array with higher rank.")
-    prefix = ntuple(_ -> Colon(), prefix_len)
-    for I in CartesianIndices(t)
-        idx = Tuple(I)
-        x0 = AuxillaryState(
-            DiscreteState(X0.ctmc_state.K, X0.ctmc_state.state[idx...]),
-            ContinuousState(view(X0.cont_state.state, prefix..., idx...))
-        )
-        x1 = AuxillaryState(
-            DiscreteState(X1.ctmc_state.K, X1.ctmc_state.state[idx...]),
-            ContinuousState(view(X1.cont_state.state, prefix..., idx...))
-        )
-        sample = endpoint_conditioned_sample(x0, x1, P, t[I]; kwargs...)
-        ctmc_state[idx...] = sample.ctmc_state.state
-        if prefix_len == 0
-            cont_state[idx...] = sample.cont_state.state[]
-        else
-            cont_state[prefix..., idx...] = sample.cont_state.state
-        end
-    end
-    return AuxillaryState(DiscreteState(X0.ctmc_state.K, ctmc_state), ContinuousState(cont_state))
-end
