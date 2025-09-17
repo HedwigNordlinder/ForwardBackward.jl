@@ -365,7 +365,7 @@ function endpoint_conditioned_sample(X0::DiscreteState, X1::DiscreteState, P::Ge
         println(X0.state)
         println(X1.state)
         Qprime = bridge_generator(P.Q, ta, X0.state, tc, X1.state)(ta + elapsed_time)
-        state = rand(forward(stochastic(state),GeneralDiscrete(Qprime),timestep))
+        state = DiscreteState(X0.K,rand(forward(stochastic(state),GeneralDiscrete(Qprime),timestep)))
         elapsed_time += timestep
     end
     return DiscreteState(X0.K, state)
