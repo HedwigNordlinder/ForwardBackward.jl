@@ -33,7 +33,8 @@ forward!(Xdest::StateLikelihood, Xt::State, process::Process, t) = forward!(Xdes
 forward(Xt::StateLikelihood, process::Process, t) = forward!(copy(Xt), Xt, process, t)
 forward(Xt::State, process::Process, t) = forward!(stochastic(eltype(t), Xt), Xt, process, t)
 
-forward!(Xdest, Xt, process, t2 - t1) #Overload for time-homogeneous processes
+#forward!(Xdest, Xt, process::Process, t1, t2) = error() #forward!(Xdest, Xt, process, t2 - t1) #Overload for time-homogeneous processes
+forward!(Xdest, Xt, process::Process, t1, t2) = forward!(Xdest, Xt, process, t2 - t1)
 forward!(Xdest::StateLikelihood, Xt::State, process::Process, t1, t2) = forward!(Xdest, stochastic(eltype(t1), Xt), process, t1, t2)
 forward(Xt::State, process::Process, t1, t2) = forward!(stochastic(eltype(t1), Xt), Xt, process, t1, t2)
 forward(Xt::StateLikelihood, process::Process, t1, t2) = forward!(copy(Xt), Xt, process, t1, t2)
