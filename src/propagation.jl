@@ -280,7 +280,7 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     
     drift_state = copy(X0.ctmc_state)
     cont_state = copy(X0.cont_state)
-    curr_time = 0
+    curr_time = eltype(t)(0)
     while curr_time < t
         timestep = min(ϵ, t - curr_time)
         drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, curr_time, curr_time+timestep, eltype(t)(1))
