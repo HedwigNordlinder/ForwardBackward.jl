@@ -276,7 +276,7 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     error("Not allowed for this type of process, only single time argument may be passed.")
 end
 
-function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t; ϵ = 1e-6)
+function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t; ϵ = 1e-2)
     
     drift_state = copy(X0.ctmc_state)
     cont_state = copy(X0.cont_state)
