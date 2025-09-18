@@ -282,7 +282,7 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     cont_state = copy(X0.cont_state)
     curr_time = eltype(t)(0)
     while curr_time < t
-        timestep = min(ϵ, t - curr_time)
+        timestep = eltype(t)(min(ϵ, t - curr_time))
         drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, curr_time, curr_time+timestep, eltype(t)(1))
         next_bridge_point = drift_state.state == 1 ? X1.cont_state : X0.cont_state
         #cont_state = rand(endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, timestep, 1))
