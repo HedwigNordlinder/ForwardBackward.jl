@@ -64,7 +64,7 @@ backward!(Xdest::StateLikelihood, Xt::State, process::Process, t) = backward!(Xd
 backward(Xt::StateLikelihood, process::Process, t) = backward!(copy(Xt), Xt, process, t)
 backward(Xt::State, process::Process, t) = backward!(stochastic(eltype(t), Xt), Xt, process, t)
 
-backward!(Xdest, Xt, process::Process, t1, t2) = error() #backward!(Xdest, Xt, process, t2 - t1) #Overload for time-homogeneous processes
+backward!(Xdest, Xt, process::Process, t1, t2) = backward!(Xdest, Xt, process, t2 - t1) #Overload for time-homogeneous processes#backward!(Xdest, Xt, process, t2 - t1) #Overload for time-homogeneous processes
 backward!(Xdest::StateLikelihood, Xt::State, process::Process, t1, t2) = backward!(Xdest, stochastic(eltype(t1), Xt), process, t1, t2)
 backward(Xt::State, process::Process, t1, t2) = backward!(stochastic(eltype(t1), Xt), Xt, process, t1, t2)
 backward(Xt::StateLikelihood, process::Process, t1, t2) = backward!(copy(Xt), Xt, process, t1, t2)
