@@ -277,19 +277,32 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
 end
 
 function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::AuxillaryProcess, t; ϵ = 1e-2)
-    
     drift_state = copy(X0.ctmc_state)
-    cont_state = copy(X0.cont_state)
-    curr_time = eltype(t)(0)
+    cont_state  = copy(X0.cont_state)
+    Tfinal      = eltype(t)(1)
+    curr_time   = eltype(t)(0)
+
     while curr_time < t
         timestep = eltype(t)(min(ϵ, t - curr_time))
-        drift_state = endpoint_conditioned_sample(drift_state, X1.ctmc_state, P.dproc, curr_time, curr_time+timestep, eltype(t)(1))
+
+        # Discrete step: sample CTMC at [curr_time, curr_time + timestep] conditioned on end at Tfinal
+        drift_state = endpoint_conditioned_sample(
+            drift_state, X1.ctmc_state, P.dproc,
+            curr_time, curr_time + timestep, Tfinal
+        )
+
+        # Choose which endpoint to pull toward (state==1 -> X1, else X0)
         next_bridge_point = drift_state.state == 1 ? X1.cont_state : X0.cont_state
-        #cont_state = rand(endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, timestep, 1))
-        cont_state=endpoint_conditioned_sample(X0.cont_state, next_bridge_point, P.cproc, timestep, eltype(t)(1))
+
+        # Continuous step: advance from the CURRENT cont_state, over the same absolute window
+        cont_state = endpoint_conditioned_sample(
+            cont_state, next_bridge_point, P.cproc,
+            curr_time, curr_time + timestep, Tfinal
+        )
+
         curr_time += timestep
-        # I think this is the correct way to step forward
     end
+
     return AuxillaryState(drift_state, cont_state)
 end
 
