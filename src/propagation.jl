@@ -285,16 +285,22 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     while curr_time < t
         timestep = eltype(t)(min(ϵ, t - curr_time))
 
-        # Discrete step: sample CTMC at [curr_time, curr_time + timestep] conditioned on end at Tfinal
+        # Discrete step over [curr_time, curr_time + timestep], conditioned to Tfinal
         drift_state = endpoint_conditioned_sample(
             drift_state, X1.ctmc_state, P.dproc,
             curr_time, curr_time + timestep, Tfinal
         )
 
-        # Choose which endpoint to pull toward (state==1 -> X1, else X0)
-        next_bridge_point = drift_state.state == 1 ? X1.cont_state : X0.cont_state
+        # === Per-sample target selection (BATCHED) ===
+        # mask: true where state==1; shape => (1, n) to broadcast over rows
+        mask_vec = drift_state.state .== one(eltype(drift_state.state))
+        mask     = reshape(mask_vec, 1, :)
+        X0mat    = tensor(X0.cont_state)   # (d, n)
+        X1mat    = tensor(X1.cont_state)   # (d, n)
+        target_mat = @. X0mat * (1 - mask) + X1mat * mask
+        next_bridge_point = ContinuousState(target_mat)
 
-        # Continuous step: advance from the CURRENT cont_state, over the same absolute window
+        # Continuous step from CURRENT cont_state over the same absolute window
         cont_state = endpoint_conditioned_sample(
             cont_state, next_bridge_point, P.cproc,
             curr_time, curr_time + timestep, Tfinal
