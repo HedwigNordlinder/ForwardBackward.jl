@@ -291,13 +291,15 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
             curr_time, curr_time + timestep, Tfinal
         )
 
-        # === Per-sample target selection (BATCHED) ===
-        # mask: true where state==1; shape => (1, n) to broadcast over rows
-        mask_vec = drift_state.state .== one(eltype(drift_state.state))
-        mask     = reshape(mask_vec, 1, :)
-        X0mat    = tensor(X0.cont_state)   # (d, n)
-        X1mat    = tensor(X1.cont_state)   # (d, n)
-        target_mat = @. X0mat * (1 - mask) + X1mat * mask
+        # --- Per-sample target selection (BATCHED, column-wise) ---
+        # mask over samples (columns): true where state == 1
+        mask = drift_state.state .== one(eltype(drift_state.state))  # BitVector length n
+
+        # Start from X0 everywhere, then overwrite the columns where mask is true with X1
+        X0mat = tensor(X0.cont_state)   # (d, n)
+        X1mat = tensor(X1.cont_state)   # (d, n)
+        target_mat = copy(X0mat)
+        @views target_mat[:, mask] .= X1mat[:, mask]
         next_bridge_point = ContinuousState(target_mat)
 
         # Continuous step from CURRENT cont_state over the same absolute window
