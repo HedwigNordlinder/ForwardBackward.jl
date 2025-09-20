@@ -282,14 +282,19 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
     Tfinal      = eltype(t)(1)
     curr_time   = eltype(t)(0)
 
-    # --- Helper: ensure a (d, n) matrix, tiling columns if needed ---
-    _as_dxn(mat, n) = begin
-        M = tensor(mat)  # may be (d,) or (d,n)
+    # Ensure a (d, n) matrix; tile columns if needed
+    _as_dxn(matlike, n) = begin
+        M = tensor(matlike)  # may be (d,) or (d,n)
         if ndims(M) == 1
-            # reshape to (d,1) then tile to (d,n)
-            repeat(reshape(M, :, 1), 1, n)
+            M = reshape(M, :, 1)
+        end
+        if size(M, 2) == n
+            M
+        elseif size(M, 2) == 1 && n > 1
+            repeat(M, 1, n)
         else
-            size(M, 2) == n ? M : repeat(M, 1, n)
+            @assert size(M, 2) == n "continuous state has size (d,$(size(M,2))) but batch is n=$n"
+            M
         end
     end
 
@@ -302,31 +307,35 @@ function endpoint_conditioned_sample(X0::AuxillaryState, X1::AuxillaryState, P::
             curr_time, curr_time + timestep, Tfinal
         )
 
-        # Determine batch size n from the discrete state (vector => batched; scalar => 1)
-        n = isa(drift_state.state, AbstractVector) ? length(drift_state.state) : 1
-
-        # Build per-sample mask (BitVector length n)
-        if isa(drift_state.state, AbstractVector)
-            mask = (drift_state.state .== one(eltype(drift_state.state)))
+        # Batch size n from the discrete state if vector, else fall back to continuous X0
+        n = if isa(drift_state.state, AbstractVector)
+            length(drift_state.state)
         else
-            mask = fill(drift_state.state == one(eltype(drift_state.state)), n)
+            size(_as_dxn(X0.cont_state, 1), 2)  # 1
         end
 
-        # Make (d,n) matrices for continuous endpoints by tiling if necessary
+        # Build a clean BitVector mask of length n: true where state==1
+        s = drift_state.state
+        if isa(s, AbstractVector)
+            mask = (s .== one(eltype(s)))               # BitVector length n
+        else
+            mask = fill(s == one(eltype(s)), n)         # all same if scalar
+        end
+
+        # Make (d,n) matrices for endpoints and current state
         X0mat = _as_dxn(X0.cont_state, n)
         X1mat = _as_dxn(X1.cont_state, n)
+        cont_mat = _as_dxn(cont_state, n)
 
-        # Column-wise selection of target endpoints: start from X0 everywhere,
-        # then overwrite columns where mask is true with X1
+        # Column-wise selection without logical slicing pitfalls
         target_mat = copy(X0mat)
-        if any(mask)
-            @views target_mat[:, mask] .= X1mat[:, mask]
+        cols = findall(mask)               # Vector{Int}
+        @inbounds for j in cols
+            @views target_mat[:, j] .= X1mat[:, j]
         end
         next_bridge_point = ContinuousState(target_mat)
 
-        # Continuous step from CURRENT cont_state over the same absolute window
-        # Also tile current cont_state to (d,n) if needed so shapes match target_mat
-        cont_mat = _as_dxn(cont_state, n)
+        # Continuous step from CURRENT cont_state over same absolute window
         cont_state = endpoint_conditioned_sample(
             ContinuousState(cont_mat), next_bridge_point, P.cproc,
             curr_time, curr_time + timestep, Tfinal
