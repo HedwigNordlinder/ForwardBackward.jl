@@ -58,7 +58,10 @@ state = ContinuousState(randn(100))
 struct ContinuousState{T<:Real} <: State
     state::AbstractArray{T}
 end
-
+struct SwitchState <: State
+    main_state::ContinuousState
+    switching_state::DiscreteState
+end
 """
     GaussianLikelihood(mu::AbstractArray, var::AbstractArray, log_norm_const::AbstractArray)
 
@@ -154,7 +157,3 @@ tensor(d::GaussianLikelihood) = d.mu
 tensor(d::AbstractArray) = flatview(d)
 tensor(d::Real) = d
 
-struct SwitchState <: State
-    main_state::ContinuousState
-    switching_state::DiscreteState
-end
