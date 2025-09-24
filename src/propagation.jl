@@ -289,7 +289,7 @@ end
 function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::SwitchBridgeProcess, t::AbstractArray)
     Xt = copy(X0)
     @inbounds for ind in CartesianIndices(Xt.main_state.state)
-        xt = endpoint_conditioned_sample(SwitchState(ContinuousState(X0.main_state.state[ind]), DiscreteState(X0.switching_state.K, X0.switching_state.state[ind])), SwitchState(ContinuousState(X1.main_state.state[ind]), DiscreteState(X1.switching_state.K, X1.switching_state.state[ind])), process, t[ind])
+        xt = endpoint_conditioned_sample(SwitchState(ContinuousState(X0.main_state.state[:,ind]), DiscreteState(X0.switching_state.K, X0.switching_state.state[ind])), SwitchState(ContinuousState(X1.main_state.state[:,ind]), DiscreteState(X1.switching_state.K, X1.switching_state.state[ind])), process, t[ind])
         Xt[ind] = xt
     end
     return Xt
