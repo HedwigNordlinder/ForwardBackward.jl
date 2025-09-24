@@ -138,6 +138,7 @@ Base.copy(d::DiscreteState) = DiscreteState(d.K, copy(d.state))
 Base.copy(d::CategoricalLikelihood) = CategoricalLikelihood(copy(d.dist), copy(d.log_norm_const))
 Base.copy(d::ContinuousState) = ContinuousState(copy(d.state))
 Base.copy(d::GaussianLikelihood) = GaussianLikelihood(copy(d.mu), copy(d.var), copy(d.log_norm_const))
+Base.copy(d::SwitchState) = SwitchState(copy(d.main_state), copy(d.switching_state))
 
 """
     tensor(d::Union{State, StateLikelihood})
