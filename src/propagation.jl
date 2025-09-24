@@ -277,9 +277,9 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     current_time = eltype(t)(0.0)
     while current_time < t
         δ = eltype(t)(min(t - current_time, ϵ))
-        target_endpoint = xt.switching_state.state[1] == 1 ? X1.main_state : X0.main_state
-        next_main_state = endpoint_conditioned_sample(xt.main_state, target_endpoint, process.main_process, current_time, current_time+δ,eltype(t)(1))
         next_switching_state = endpoint_conditioned_sample(xt.switching_state, X1.switching_state, process.switching_process, current_time, current_time+δ,eltype(t)(1))
+        target_endpoint = next_switching_state.state[1] == 1 ? X1.main_state : X0.main_state
+        next_main_state = endpoint_conditioned_sample(xt.main_state, target_endpoint, process.main_process, current_time, current_time+δ,eltype(t)(1))
         xt = SwitchState(next_main_state, next_switching_state)
         current_time += δ
     end
