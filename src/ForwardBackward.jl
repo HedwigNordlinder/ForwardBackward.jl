@@ -47,5 +47,4 @@ export
     perturb!,
     perturb,
     expand
-    
 end

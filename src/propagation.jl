@@ -272,6 +272,7 @@ function backward!(dest::CategoricalLikelihood, source::CategoricalLikelihood, p
 end
 
 
+
 function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::SwitchBridgeProcess, t; ϵ = 1e-2)
     xt = copy(X0)
     current_time = eltype(t)(0.0)
