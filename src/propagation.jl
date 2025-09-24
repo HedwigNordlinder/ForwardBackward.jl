@@ -271,4 +271,17 @@ function backward!(dest::CategoricalLikelihood, source::CategoricalLikelihood, p
     return dest
 end
 
-#To add: DiagonalizadCTMC, HQtPi
+
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::SwitchBridgeProcess, t; ϵ = 1e-2)
+    xt = copy(X0)
+    current_time = 0.0
+    while current_time < t
+        δ = min(t - current_time, ϵ)
+        target_endpoint = X0.switching_state.state[1] == 1 ? X1.main_state : X0.main_state
+        next_main_state = endpoint_conditioned_sample(X0.main_state, target_endpoint, process.main_process, current_time, current_time+δ,eltype(t)(1))
+        next_switching_state = endpoint_conditioned_sample(X0.switching_state, X1.switching_state, process.switching_process, current_time, current_time+δ,eltype(t)(1))
+        xt = SwitchState(next_main_state, next_switching_state)
+        current_time += δ
+    end
+    return xt
+end

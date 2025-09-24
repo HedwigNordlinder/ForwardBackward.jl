@@ -152,3 +152,8 @@ tensor(d::CategoricalLikelihood) = d.dist
 tensor(d::GaussianLikelihood) = d.mu
 tensor(d::AbstractArray) = flatview(d)
 tensor(d::Real) = d
+
+struct SwitchState <: State
+    main_state::ContinuousState
+    switching_state::DiscreteState
+end
