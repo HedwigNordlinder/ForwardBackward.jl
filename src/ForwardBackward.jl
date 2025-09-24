@@ -22,6 +22,8 @@ export
     UniformDiscrete,
     UniformUnmasking,
     GeneralDiscrete,
+    SwitchBridgeProcess,
+    SwitchState,
     PiQ,
     #Likelihoods & States
     CategoricalLikelihood,
