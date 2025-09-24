@@ -292,8 +292,8 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     @inbounds for ind in CartesianIndices(t)
         cont_state[:,ind] = X0.main_state.state[:,ind]
         disc_state[ind,:] = X0.switching_state.state[ind,:]
-        x0 = SwitchingState(ContinuousState(X0.main_state.state[:,ind]), DiscreteState(X0.switching_state.K, X0.switching_state.state[ind,:]))
-        x1 = SwitchingState(ContinuousState(X1.main_state.state[:,ind]), DiscreteState(X1.switching_state.K, X1.switching_state.state[ind,:]))
+        x0 = SwitchState(ContinuousState(X0.main_state.state[:,ind]), DiscreteState(X0.switching_state.K, X0.switching_state.state[ind,:]))
+        x1 = SwitchState(ContinuousState(X1.main_state.state[:,ind]), DiscreteState(X1.switching_state.K, X1.switching_state.state[ind,:]))
         xt = endpoint_conditioned_sample(x0, x1, process, t[ind])
         cont_state[:,ind] = xt.main_state.state
         disc_state[ind,:] = xt.switching_state.state
