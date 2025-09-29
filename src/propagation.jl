@@ -273,7 +273,7 @@ end
 
 
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::SwitchBridgeProcess, t; ϵ = 1e-2)
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::SwitchBridgeProcess, t::Real; ϵ = 1e-2)
     xt = copy(X0)
     current_time = eltype(t)(0.0)
     while current_time < t
@@ -302,7 +302,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
 end
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t; ϵ = 1e-2)
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t::Real; ϵ = 1e-2)
 
     xt = copy(X0)
     current_time = eltype(t)(0.0)
