@@ -221,3 +221,7 @@ struct SwitchBridgeProcess <: Process
     main_process::ContinuousProcess
     switching_process::DiscreteProcess
 end
+struct XDependentSwitchBridgeProcess <: Process
+    main_process::ContinuousProcess
+    Q_function::Function
+end

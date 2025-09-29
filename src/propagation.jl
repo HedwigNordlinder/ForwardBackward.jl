@@ -287,7 +287,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     return xt
 end
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::SwitchBridgeProcess, t::AbstractArray; ϵ = 1e-2)
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::Union{SwitchBridgeProcess, XDependentSwitchBridgeProcess}, t::AbstractArray; ϵ = 1e-2)
     cont_state = similar(X0.main_state.state)
     disc_state = similar(X0.switching_state.state)
     @inbounds for ind in CartesianIndices(t)
@@ -300,4 +300,21 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
         disc_state[ind,:] = xt.switching_state.state
     end
     return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
+end
+
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t; ϵ = 1e-2)
+
+    xt = copy(X0)
+    current_time = eltype(t)(0.0)
+    while current_time < t
+        δ = eltype(t)(min(t - current_time, ϵ))
+        switching_process = GeneralDiscrete(process.Q_function(xt.main_state))
+        next_switching_state = endpoint_conditioned_sample(xt.switching_state, X1.switching_state, switching_process, current_time, current_time+δ,eltype(t)(1))
+        target_endpoint = next_switching_state.state[1] == 1 ? X1.main_state : X0.main_state
+        next_main_state = endpoint_conditioned_sample(xt.main_state, target_endpoint, process.main_process, current_time, current_time+δ,eltype(t)(1))
+        xt = SwitchState(next_main_state, next_switching_state)
+        current_time += δ
+    end
+    return xt
+
 end

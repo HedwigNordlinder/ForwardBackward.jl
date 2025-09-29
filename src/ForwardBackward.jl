@@ -23,6 +23,7 @@ export
     UniformUnmasking,
     GeneralDiscrete,
     SwitchBridgeProcess,
+    XDependentSwitchBridgeProcess,
     SwitchState,
     PiQ,
     #Likelihoods & States
