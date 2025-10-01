@@ -158,6 +158,10 @@ function backward!(x_dest::GaussianLikelihood, Xt::GaussianLikelihood, process::
     return x_dest
 end
 
+function forward(Xt::ContinuousState, process::BrownianMotion, t)
+    return ContinuousState(Xt.state .+ process.δ * t + process.v .* sqrt(t) .* randn(size(Xt.state)))
+end
+
 function forward!(x_dest::GaussianLikelihood, Xs::GaussianLikelihood, P::OrnsteinUhlenbeckExpVar, t1, t2)
     μ, θ = P.μ, P.θ
     t1e = expand(t1, ndims(Xs.mu))
@@ -317,4 +321,68 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     end
     return xt
 
+end
+
+# We will step with Brownian bridges
+function endpoint_conditioned_sample(X0::ContinuousState, X1::ContinuousState, process::DriftDiffusionProcess, t; ϵ = 1e-2)
+    xt = copy(X0)
+    current_time = eltype(t)(0.0)
+    while current_time < t
+        δ = eltype(t)(min(t - current_time, ϵ))
+        local_drift = process.μ(current_time, xt)
+        local_diffusion = process.σ(current_time, xt)
+        local_process = BrownianMotion(local_drift, local_diffusion)
+        xt = endpoint_conditioned_sample(xt, X1, local_process, current_time, current_time+δ,eltype(t)(1))
+    end
+    return xt
+end
+
+function endpoint_conditioned_sample(X0::ContinuousState, X1::ContinuousState, process::DriftDiffusionProcess, t::AbstractArray; ϵ = 1e-2)
+    cont_state = similar(X0.state)
+    @inbounds for ind in CartesianIndices(t)
+        cont_state[:,ind] = X0.state[:,ind]
+        xt = endpoint_conditioned_sample(xt, X1, process, t[ind]; ϵ = ϵ)
+        cont_state[:,ind] = xt.state
+    end
+    return ContinuousState(cont_state)
+end
+
+function step(Xt::ContinuousState, process::DriftDiffusionProcess, t0::Real, t1::Real; ϵ = 1e-2)
+    xt = copy(Xt)
+    current_time = t0
+    while current_time < t1
+        δ = eltype(t)(min(t1 - current_time, ϵ))
+        local_drift = process.μ(current_time, xt)
+        local_diffusion = process.σ(current_time, xt)
+        local_process = BrownianMotion(local_drift, local_diffusion)
+        xt = forward(xt, local_process, δ)
+        current_time += δ
+    end
+    return xt
+end
+function step(Xt::ContinuousState, process::DriftDiffusionProcess, t::Real; ϵ = 1e-2)
+    return step(Xt, process, eltype(t)(0), t; ϵ = ϵ)
+end
+
+function step(Xt::ContinuousState, process::DriftDiffusionProcess, t::AbstractArray; ϵ = 1e-2)
+    cont_state = similar(Xt.state)
+    @inbounds for ind in CartesianIndices(t)
+        cont_state[:,ind] = Xt.state[:,ind]
+        xt = step(Xt, process, t[ind]; ϵ = ϵ)
+        cont_state[:,ind] = xt.state
+    end
+    return ContinuousState(cont_state)
+end
+
+function step(Xt::ContinuousState, process::DriftDiffusionProcess, t0::AbstractArray, t1::AbstractArray; ϵ = 1e-2)
+    cont_state = similar(Xt.state)
+    if size(t0) != size(t1) || size(t0) != size(Xt.state)
+        throw(DimensionMismatch("Time arrays must be the same size as the state array. Got size(t0)=$(size(t0)), size(t1)=$(size(t1)), size(Xt.state)=$(size(Xt.state))"))
+    end
+    @inbounds for ind in CartesianIndices(t0)
+        cont_state[:,ind] = Xt.state[:,ind]
+        xt = step(Xt, process, t0[ind], t1[ind]; ϵ = ϵ)
+        cont_state[:,ind] = xt.state
+    end
+    return ContinuousState(cont_state)
 end

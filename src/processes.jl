@@ -218,10 +218,15 @@ end
 PiQ(π::Vector{T}; normalize=true) where T <: Real = PiQ(T(1.0), π; normalize=normalize)
 
 struct SwitchBridgeProcess <: Process
-    main_process::ContinuousProcess
+    main_process::Union{ContinuousProcess, Deterministic}
     switching_process::DiscreteProcess
 end
 struct XDependentSwitchBridgeProcess <: Process
-    main_process::ContinuousProcess
+    main_process::Union{ContinuousProcess, Deterministic}
     Q_function::Function
+end
+
+struct DriftDiffusionProcess <: ContinuousProcess
+    μ::Function
+    σ::Function
 end
