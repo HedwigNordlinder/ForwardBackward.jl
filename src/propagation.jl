@@ -291,28 +291,130 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     end
     return xt
 end
+# Helper to expand a batch mask to the leading continuous dimension
+_expand_to_cont(mask, nd_cont) = expand(mask, nd_cont)
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::Union{SwitchBridgeProcess, XDependentSwitchBridgeProcess}, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
-    cont_state = similar(X0.main_state.state)
-    disc_state = similar(X0.switching_state.state)
-    @inbounds for ind in CartesianIndices(t)
-        # Remove lines 299-300 - they're wasteful
-        # Use views to avoid allocations
-        x0_cont_view = @view X0.main_state.state[:,ind]
-        x1_cont_view = @view X1.main_state.state[:,ind]
-        x0_disc_view = @view X0.switching_state.state[ind,:]
-        x1_disc_view = @view X1.switching_state.state[ind,:]
-        
-        x0 = SwitchState(ContinuousState(x0_cont_view), DiscreteState(X0.switching_state.K, x0_disc_view))
-        x1 = SwitchState(ContinuousState(x1_cont_view), DiscreteState(X1.switching_state.K, x1_disc_view))
-        xt = endpoint_conditioned_sample(x0, x1, process, t[ind]; ϵ = ϵ, tracker = (t, xt) -> tracker(t, xt, ind))
-        
-        cont_state[:,ind] .= xt.main_state.state
-        disc_state[ind,:] .= xt.switching_state.state
-    end
-    return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
+# Discrete step — multiple dispatch controls vectorisation capability
+function _discrete_step!(disc, X1_disc, p::PiQ, t_a, t_b, t_c, apply_mask, K)
+    Snext = endpoint_conditioned_sample(DiscreteState(K, disc), DiscreteState(K, X1_disc), p, t_a, t_b, t_c)
+    @inbounds disc .= ifelse.(apply_mask, Snext.state, disc)
+    return disc
 end
 
+function _discrete_step!(disc, X1_disc, p::UniformDiscrete, t_a, t_b, t_c, apply_mask, K)
+    Snext = endpoint_conditioned_sample(DiscreteState(K, disc), DiscreteState(K, X1_disc), p, t_a, t_b, t_c)
+    @inbounds disc .= ifelse.(apply_mask, Snext.state, disc)
+    return disc
+end
+
+function _discrete_step!(disc, X1_disc, p::GeneralDiscrete, t_a, t_b, t_c, apply_mask, K)
+    @inbounds for ind in CartesianIndices(t_a)
+        if apply_mask[ind]
+            s = endpoint_conditioned_sample(
+                DiscreteState(K, disc[ind]),
+                DiscreteState(K, X1_disc[ind]),
+                p, t_a[ind], t_b[ind], one(eltype(t_a))
+            )
+            disc[ind] = s.state
+        end
+    end
+    return disc
+end
+
+# Batched endpoint-conditioned sample for SwitchBridgeProcess
+function endpoint_conditioned_sample(
+    X0::SwitchState, X1::SwitchState, process::SwitchBridgeProcess, t::AbstractArray;
+    ϵ = 1e-2, tracker::Function = Returns(nothing)
+)
+    cont = copy(X0.main_state.state)
+    disc = copy(X0.switching_state.state)
+
+    cont_nd = ndims(cont)
+    disc_nd = ndims(disc)
+    cont_nd == disc_nd + 1 || throw(DimensionMismatch("main_state must have one extra leading dim; got $(size(cont)) vs $(size(disc))."))
+
+    t_full = expand(t, disc_nd)
+    τ = zero.(t_full)
+    t_c = one(eltype(t_full)) .+ zero.(t_full)
+    K = X0.switching_state.K
+
+    while true
+        active = τ .< t_full
+        any(active) || break
+        δ = min(ϵ, minimum((t_full .- τ)[active]))
+        t_a = τ
+        t_b = min.(t_full, τ .+ δ)
+        apply_mask = t_a .< t_b
+
+        # 1) Discrete update (via dispatch on switching process)
+        disc = _discrete_step!(disc, X1.switching_state.state, process.switching_process, t_a, t_b, t_c, apply_mask, K)
+
+        # 2) Continuous update for all sites in one shot
+        choose_X1 = disc .== 1
+        target_main = ifelse.(_expand_to_cont(choose_X1, cont_nd), X1.main_state.state, X0.main_state.state)
+        Xmain_next = endpoint_conditioned_sample(
+            ContinuousState(cont), ContinuousState(target_main), process.main_process, t_a, t_b, t_c
+        )
+        @inbounds cont .= ifelse.(_expand_to_cont(apply_mask, cont_nd), Xmain_next.state, cont)
+
+        τ = t_b
+    end
+
+    return SwitchState(ContinuousState(cont), DiscreteState(K, disc))
+end
+
+# Batched endpoint-conditioned sample for XDependentSwitchBridgeProcess
+function endpoint_conditioned_sample(
+    X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t::AbstractArray;
+    ϵ = 1e-2, tracker::Function = Returns(nothing)
+)
+    cont = copy(X0.main_state.state)
+    disc = copy(X0.switching_state.state)
+
+    cont_nd = ndims(cont)
+    disc_nd = ndims(disc)
+    cont_nd == disc_nd + 1 || throw(DimensionMismatch("main_state must have one extra leading dim; got $(size(cont)) vs $(size(disc))."))
+
+    t_full = expand(t, disc_nd)
+    τ = zero.(t_full)
+    t_c = one(eltype(t_full)) .+ zero.(t_full)
+    K = X0.switching_state.K
+
+    while true
+        active = τ .< t_full
+        any(active) || break
+        δ = min(ϵ, minimum((t_full .- τ)[active]))
+        t_a = τ
+        t_b = min.(t_full, τ .+ δ)
+        apply_mask = t_a .< t_b
+
+        # 1) Discrete update depends on current continuous state ⇒ per-site
+        @inbounds for ind in CartesianIndices(t_full)
+            if apply_mask[ind]
+                x_cont = ContinuousState(@view cont[:, ntuple(i -> i <= disc_nd ? ind.I[i] : Colon(), cont_nd)...])
+                Q = process.Q_function(x_cont)
+                s = endpoint_conditioned_sample(
+                    DiscreteState(K, disc[ind]),
+                    DiscreteState(K, X1.switching_state.state[ind]),
+                    GeneralDiscrete(Q), t_a[ind], t_b[ind], one(eltype(t_a))
+                )
+                disc[ind] = s.state
+            end
+        end
+
+        # 2) Continuous update for all sites
+        choose_X1 = disc .== 1
+        target_main = ifelse.(expand(choose_X1, cont_nd), X1.main_state.state, X0.main_state.state)
+        Xmain_next = endpoint_conditioned_sample(
+            ContinuousState(cont), ContinuousState(target_main), process.main_process, t_a, t_b, t_c
+        )
+        @inbounds cont .= ifelse.(expand(apply_mask, cont_nd), Xmain_next.state, cont)
+
+        τ = t_b
+    end
+
+    return SwitchState(ContinuousState(cont), DiscreteState(K, disc))
+end
 function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t::Real; ϵ = 1e-2, tracker::Function=Returns(nothing))
 
     xt = copy(X0)
