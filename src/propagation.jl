@@ -292,7 +292,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     return xt
 end
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::Union{SwitchBridgeProcess, XDependentSwitchBridgeProcess}, t::AbstractArray; ϵ = 1e-2)
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::Union{SwitchBridgeProcess, XDependentSwitchBridgeProcess}, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
     cont_state = similar(X0.main_state.state)
     disc_state = similar(X0.switching_state.state)
     @inbounds for ind in CartesianIndices(t)
@@ -305,7 +305,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
         
         x0 = SwitchState(ContinuousState(x0_cont_view), DiscreteState(X0.switching_state.K, x0_disc_view))
         x1 = SwitchState(ContinuousState(x1_cont_view), DiscreteState(X1.switching_state.K, x1_disc_view))
-        xt = endpoint_conditioned_sample(x0, x1, process, t[ind]; ϵ = ϵ)
+        xt = endpoint_conditioned_sample(x0, x1, process, t[ind]; ϵ = ϵ, tracker = tracker)
         
         cont_state[:,ind] .= xt.main_state.state
         disc_state[ind,:] .= xt.switching_state.state
@@ -313,8 +313,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
 end
 
-
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t::Real; ϵ = 1e-2)
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t::Real; ϵ = 1e-2, tracker::Function=Returns(nothing))
 
     xt = copy(X0)
     current_time = eltype(t)(0.0)
@@ -325,6 +324,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
         target_endpoint = next_switching_state.state[1] == 1 ? X1.main_state : X0.main_state
         next_main_state = endpoint_conditioned_sample(xt.main_state, target_endpoint, process.main_process, current_time, current_time+δ,eltype(t)(1))
         xt = SwitchState(next_main_state, next_switching_state)
+        tracker(xt, current_time)
         current_time += δ
     end
     return xt
