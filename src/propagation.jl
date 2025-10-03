@@ -296,16 +296,23 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     cont_state = similar(X0.main_state.state)
     disc_state = similar(X0.switching_state.state)
     @inbounds for ind in CartesianIndices(t)
-        cont_state[:,ind] = X0.main_state.state[:,ind]
-        disc_state[ind,:] = X0.switching_state.state[ind,:]
-        x0 = SwitchState(ContinuousState(X0.main_state.state[:,ind]), DiscreteState(X0.switching_state.K, X0.switching_state.state[ind,:]))
-        x1 = SwitchState(ContinuousState(X1.main_state.state[:,ind]), DiscreteState(X1.switching_state.K, X1.switching_state.state[ind,:]))
+        # Remove lines 299-300 - they're wasteful
+        # Use views to avoid allocations
+        x0_cont_view = @view X0.main_state.state[:,ind]
+        x1_cont_view = @view X1.main_state.state[:,ind]
+        x0_disc_view = @view X0.switching_state.state[ind,:]
+        x1_disc_view = @view X1.switching_state.state[ind,:]
+        
+        x0 = SwitchState(ContinuousState(x0_cont_view), DiscreteState(X0.switching_state.K, x0_disc_view))
+        x1 = SwitchState(ContinuousState(x1_cont_view), DiscreteState(X1.switching_state.K, x1_disc_view))
         xt = endpoint_conditioned_sample(x0, x1, process, t[ind]; ϵ = ϵ)
-        cont_state[:,ind] = xt.main_state.state
-        disc_state[ind,:] = xt.switching_state.state
+        
+        cont_state[:,ind] .= xt.main_state.state
+        disc_state[ind,:] .= xt.switching_state.state
     end
     return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
 end
+
 
 function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t::Real; ϵ = 1e-2)
 
