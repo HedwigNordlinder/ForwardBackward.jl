@@ -411,7 +411,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
         next_switching_state = endpoint_conditioned_sample(xt.switching_state, X1.switching_state, process.jumping_process, current_time, current_time+δ,eltype(t)(1))
         next_continuous_state = endpoint_conditioned_sample(xt.main_state, X1.main_state, process.main_process, current_time, current_time+δ,eltype(t)(1))
         augmented_continuous_state = next_continuous_state.state .+ (switching_state_to_jump_value(next_switching_state, process) .- switching_state_to_jump_value(xt.switching_state, process))
-        xt = SwitchState(augmented_continuous_state, next_switching_state)
+        xt = SwitchState(ContinuousState(augmented_continuous_state), next_switching_state)
         current_time += δ
         tracker(current_time, xt)
     end
