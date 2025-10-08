@@ -382,4 +382,31 @@ function endpoint_conditioned_sample(X0::LatentJumpingState, X1::LatentJumpingSt
     return xt
 end
 
-
+function endpoint_conditioned_sample(X0::LatentJumpingState, X1::LatentJumpingState, process::LatentJumpingProcess, tF, tB; ϵ = 1e-2, tracker::Function=Returns(nothing))
+    xt = copy(X0)
+    t = tF
+    while t < tB
+        δ = eltype(t)(min(tB - t, ϵ))
+        next_switching_state = endpoint_conditioned_sample(xt.switching_state, X1.switching_state, process.jumping_process, t, t+δ,eltype(t)(1))
+        next_continuous_state = endpoint_conditioned_sample(xt.continuous_state, X1.continuous_state, process.main_process, t, t+δ,eltype(t)(1))
+        augmented_continuous_state = next_continuous_state.state .+ (switching_state_to_jump_value(next_switching_state, process) .- switching_state_to_jump_value(xt.switching_state, process))
+        xt = LatentJumpingState(ContinuousState(augmented_continuous_state), next_switching_state, next_continuous_state)
+        t += δ
+        tracker(t, xt)
+    end
+    return xt
+end
+function endpoint_conditioned_sample(X0::LatentJumpingState, X1::LatentJumpingState, process::LatentJumpingProcess, tF::AbstractArray, tB::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
+    main_state = similar(X0.combined_state.state)
+    disc_state = similar(X0.switching_state.state)
+    cont_state = similar(X0.continuous_state.state)
+    @inbounds for ind in CartesianIndices(tF)
+        x0 = LatentJumpingState(ContinuousState(x0_main_view), DiscreteState(X0.switching_state.K, x0_disc_view), ContinuousState(x0_continuous_view))
+        x1 = LatentJumpingState(ContinuousState(x1_main_view), DiscreteState(X1.switching_state.K, x1_disc_view), ContinuousState(x1_continuous_view))
+        xt = endpoint_conditioned_sample(x0, x1, process, tF[ind], tB[ind]; ϵ = ϵ, tracker = (t, xt) -> tracker(t, xt, ind))
+        main_state[:,ind] .= xt.combined_state.state
+        cont_state[:,ind] .= xt.continuous_state.state
+        disc_state[ind,:] .= xt.switching_state.state
+    end
+    return LatentJumpingState(ContinuousState(main_state), DiscreteState(X0.switching_state.K, disc_state), ContinuousState(cont_state))
+end
