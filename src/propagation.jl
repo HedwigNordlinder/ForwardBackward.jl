@@ -394,3 +394,39 @@ function step(Xt::ContinuousState, process::DriftDiffusionProcess, t0::AbstractA
     end
     return ContinuousState(cont_state)
 end
+
+
+# Implementation for LatentJumpingProcess
+
+# The model now needs two heads, and the loss needs to see both heads. One head outputs +1 rate, -1 rate, one head outputs continuous state
+# Quickie function that takes a discrete state and maps it to a jump
+switching_state_to_jump_value(state::DiscreteState, process::LatentJumpingProcess) = [process.possible_jumps[state.state[i]] for i in eachindex(state.state)]
+
+
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::LatentJumpingProcess, t::Real; ϵ = 1e-2)
+    xt = copy(X0)
+    current_time = eltype(t)(0.0)
+    while current_time < t
+        δ = eltype(t)(min(t - current_time, ϵ))
+        next_switching_state = endpoint_conditioned_sample(xt.switching_state, X1.switching_state, process.jumping_process, current_time, current_time+δ,eltype(t)(1))
+        next_continuous_state = endpoint_conditioned_sample(xt.main_state, X1.main_state, process.main_process, current_time, current_time+δ,eltype(t)(1))
+        augmented_continuous_state = next_continuous_state .+ (switching_state_to_jump_value(next_switching_state, process) .- switching_state_to_jump_value(xt.switching_state, process))
+        xt = SwitchState(augmented_continuous_state, next_switching_state)
+        current_time += δ
+    end
+    return xt
+end
+
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::LatentJumpingProcess, t::AbstractArray; ϵ = 1e-2)
+    cont_state = similar(X0.main_state.state)
+    disc_state = similar(X0.switching_state.state)
+    @inbounds for ind in CartesianIndices(t)
+        cont_state[:,ind] = X0.main_state.state[:,ind]
+        disc_state[ind,:] = X0.switching_state.state[ind,:]
+        xt = endpoint_conditioned_sample(X0, X1, process, t[ind]; ϵ = ϵ)
+        cont_state[:,ind] = xt.main_state.state
+        disc_state[ind,:] = xt.switching_state.state
+    end
+    return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
+end
+

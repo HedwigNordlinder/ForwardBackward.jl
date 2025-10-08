@@ -230,3 +230,11 @@ struct DriftDiffusionProcess <: ContinuousProcess
     μ::Function
     σ::Function
 end
+
+# A birth-death process is technically just a CTMC, but implementing it as a special case is convenient since you don't have to worry about a gigantic Q-matrix
+
+struct LatentJumpingProcess{T} <: Process
+    main_process::Union{ContinuousProcess, Deterministic}
+    jumping_process::DiscreteProcess
+    possible_jumps::AbstractVector{T}
+end

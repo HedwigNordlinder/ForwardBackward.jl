@@ -24,6 +24,7 @@ export
     GeneralDiscrete,
     SwitchBridgeProcess,
     XDependentSwitchBridgeProcess,
+    LatentJumpingProcess,
     SwitchState,
     PiQ,
     #Likelihoods & States
