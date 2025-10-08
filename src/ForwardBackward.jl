@@ -32,6 +32,7 @@ export
     GaussianLikelihood,
     DiscreteState,
     ContinuousState,
+    LatentJumpingState,
     #Functions
     endpoint_conditioned_sample,
     interpolate,
