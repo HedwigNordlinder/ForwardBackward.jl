@@ -157,7 +157,7 @@ Convert a state or likelihood to its tensor (ie. multidimensional array) represe
 The underlying array representation of the state or likelihood.
 """
 tensor(d::State) = flatview(d.state)
-tensor(d::LatentJumpingState) = tensor(d.combined_state)
+tensor(d::LatentJumpingState) = tensor(d.combined_state.state)
 tensor(d::CategoricalLikelihood) = d.dist
 tensor(d::GaussianLikelihood) = d.mu
 tensor(d::AbstractArray) = flatview(d)
