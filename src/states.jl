@@ -62,6 +62,11 @@ struct SwitchState <: State
     main_state::ContinuousState
     switching_state::DiscreteState
 end
+struct LatentJumpingState <: State
+    combined_state::ContinuousState
+    switching_state::DiscreteState
+    continuous_state::ContinuousState
+end
 """
     GaussianLikelihood(mu::AbstractArray, var::AbstractArray, log_norm_const::AbstractArray)
 

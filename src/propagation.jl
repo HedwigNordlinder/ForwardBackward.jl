@@ -292,7 +292,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     return xt
 end
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::Union{SwitchBridgeProcess, XDependentSwitchBridgeProcess, LatentJumpingProcess}, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::Union{SwitchBridgeProcess, XDependentSwitchBridgeProcess}, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
     cont_state = similar(X0.main_state.state)
     disc_state = similar(X0.switching_state.state)
     @inbounds for ind in CartesianIndices(t)
@@ -313,6 +313,32 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
 end
 
+function endpoint_conditioned_sample(X0::LatentJumpingState, X1::LatentJumpingState, process::LatentJumpingProcess, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
+    main_state = similar(X0.combined_state.state)
+    disc_state = similar(X0.switching_state.state)
+    cont_state = similar(X0.continuous_state.state)
+    @inbounds for ind in CartesianIndices(t)
+        # Remove lines 299-300 - they're wasteful
+        # Use views to avoid allocations
+        x0_main_view = @view X0.main_state.state[:,ind]
+        x1_main_view = @view X1.main_state.state[:,ind]
+        x0_disc_view = @view X0.switching_state.state[ind,:]
+        x1_disc_view = @view X1.switching_state.state[ind,:]
+        x0_continuous_view = @view X0.continuous_state.state[:,ind]
+        x1_continuous_view = @view X1.continuous_state.state[:,ind]
+        
+        x0 = LatentJumpingState(ContinuousState(x0_main_view), DiscreteState(X0.switching_state.K, x0_disc_view), x0_continuous_view)
+        x1 = LatentJumpingState(ContinuousState(x1_main_view), DiscreteState(X1.switching_state.K, x1_disc_view), x1_continuous_view)
+        xt = endpoint_conditioned_sample(x0, x1, process, t[ind]; ϵ = ϵ, tracker = (t, xt) -> tracker(t, xt, ind))
+        
+        main_state[:,ind] .= xt.combined_state.state
+        cont_state[:,ind] .= xt.continuous_state.state
+        disc_state[ind,:] .= xt.switching_state.state
+
+    end
+    return LatentJumpingState(ContinuousState(main_state), DiscreteState(X0.switching_state.K, disc_state), ContinuousState(cont_state))
+end
+
 function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::XDependentSwitchBridgeProcess, t::Real; ϵ = 1e-2, tracker::Function=Returns(nothing))
 
     xt = copy(X0)
@@ -331,69 +357,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
 
 end
 
-# We will step with Brownian bridges
-function endpoint_conditioned_sample(X0::ContinuousState, X1::ContinuousState, process::DriftDiffusionProcess, t; ϵ = 1e-2)
-    xt = copy(X0)
-    current_time = eltype(t)(0.0)
-    while current_time < t
-        δ = eltype(t)(min(t - current_time, ϵ))
-        local_drift = process.μ(current_time, xt)
-        local_diffusion = process.σ(current_time, xt)
-        local_process = BrownianMotion(local_drift, local_diffusion)
-        xt = endpoint_conditioned_sample(xt, X1, local_process, current_time, current_time+δ,eltype(t)(1))
-    end
-    return xt
-end
 
-function endpoint_conditioned_sample(X0::ContinuousState, X1::ContinuousState, process::DriftDiffusionProcess, t::AbstractArray; ϵ = 1e-2)
-    cont_state = similar(X0.state)
-    @inbounds for ind in CartesianIndices(t)
-        cont_state[:,ind] = X0.state[:,ind]
-        xt = endpoint_conditioned_sample(xt, X1, process, t[ind]; ϵ = ϵ)
-        cont_state[:,ind] = xt.state
-    end
-    return ContinuousState(cont_state)
-end
-
-function step(Xt::ContinuousState, process::DriftDiffusionProcess, t0::Real, t1::Real; ϵ = 1e-2)
-    xt = copy(Xt)
-    current_time = t0
-    while current_time < t1
-        δ = eltype(t)(min(t1 - current_time, ϵ))
-        local_drift = process.μ(current_time, xt)
-        local_diffusion = process.σ(current_time, xt)
-        local_process = BrownianMotion(local_drift, local_diffusion)
-        xt = forward(xt, local_process, δ)
-        current_time += δ
-    end
-    return xt
-end
-function step(Xt::ContinuousState, process::DriftDiffusionProcess, t::Real; ϵ = 1e-2)
-    return step(Xt, process, eltype(t)(0), t; ϵ = ϵ)
-end
-
-function step(Xt::ContinuousState, process::DriftDiffusionProcess, t::AbstractArray; ϵ = 1e-2)
-    cont_state = similar(Xt.state)
-    @inbounds for ind in CartesianIndices(t)
-        cont_state[:,ind] = Xt.state[:,ind]
-        xt = step(Xt, process, t[ind]; ϵ = ϵ)
-        cont_state[:,ind] = xt.state
-    end
-    return ContinuousState(cont_state)
-end
-
-function step(Xt::ContinuousState, process::DriftDiffusionProcess, t0::AbstractArray, t1::AbstractArray; ϵ = 1e-2)
-    cont_state = similar(Xt.state)
-    if size(t0) != size(t1) || size(t0) != size(Xt.state)
-        throw(DimensionMismatch("Time arrays must be the same size as the state array. Got size(t0)=$(size(t0)), size(t1)=$(size(t1)), size(Xt.state)=$(size(Xt.state))"))
-    end
-    @inbounds for ind in CartesianIndices(t0)
-        cont_state[:,ind] = Xt.state[:,ind]
-        xt = step(Xt, process, t0[ind], t1[ind]; ϵ = ϵ)
-        cont_state[:,ind] = xt.state
-    end
-    return ContinuousState(cont_state)
-end
 
 
 # Implementation for LatentJumpingProcess
@@ -403,15 +367,15 @@ end
 switching_state_to_jump_value(state::DiscreteState, process::LatentJumpingProcess) = [process.possible_jumps[state.state[i]] for i in eachindex(state.state)]
 
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::LatentJumpingProcess, t::Real; ϵ = 1e-2, tracker::Function=Returns(nothing))
+function endpoint_conditioned_sample(X0::LatentJumpingState, X1::LatentJumpingState, process::LatentJumpingProcess, t::Real; ϵ = 1e-2, tracker::Function=Returns(nothing))
     xt = copy(X0)
     current_time = eltype(t)(0.0)
     while current_time < t
         δ = eltype(t)(min(t - current_time, ϵ))
         next_switching_state = endpoint_conditioned_sample(xt.switching_state, X1.switching_state, process.jumping_process, current_time, current_time+δ,eltype(t)(1))
-        next_continuous_state = endpoint_conditioned_sample(xt.main_state, X1.main_state, process.main_process, current_time, current_time+δ,eltype(t)(1))
+        next_continuous_state = endpoint_conditioned_sample(xt.continuous_state, X1.continuous_state, process.main_process, current_time, current_time+δ,eltype(t)(1))
         augmented_continuous_state = next_continuous_state.state .+ (switching_state_to_jump_value(next_switching_state, process) .- switching_state_to_jump_value(xt.switching_state, process))
-        xt = SwitchState(ContinuousState(augmented_continuous_state), next_switching_state)
+        xt = LatentJumpingState(ContinuousState(augmented_continuous_state), next_switching_state, next_continuous_state)
         current_time += δ
         tracker(current_time, xt)
     end
