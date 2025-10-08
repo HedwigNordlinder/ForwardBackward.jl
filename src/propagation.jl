@@ -403,7 +403,7 @@ end
 switching_state_to_jump_value(state::DiscreteState, process::LatentJumpingProcess) = [process.possible_jumps[state.state[i]] for i in eachindex(state.state)]
 
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::LatentJumpingProcess, t::Real; ϵ = 1e-2)
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::LatentJumpingProcess, t::Real; ϵ = 1e-2, tracker::Function=Returns(nothing))
     xt = copy(X0)
     current_time = eltype(t)(0.0)
     while current_time < t
@@ -413,19 +413,21 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
         augmented_continuous_state = next_continuous_state .+ (switching_state_to_jump_value(next_switching_state, process) .- switching_state_to_jump_value(xt.switching_state, process))
         xt = SwitchState(augmented_continuous_state, next_switching_state)
         current_time += δ
+        tracker(current_time, xt)
     end
     return xt
 end
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::LatentJumpingProcess, t::AbstractArray; ϵ = 1e-2)
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::LatentJumpingProcess, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
     cont_state = similar(X0.main_state.state)
     disc_state = similar(X0.switching_state.state)
     @inbounds for ind in CartesianIndices(t)
         cont_state[:,ind] = X0.main_state.state[:,ind]
         disc_state[ind,:] = X0.switching_state.state[ind,:]
-        xt = endpoint_conditioned_sample(X0, X1, process, t[ind]; ϵ = ϵ)
+        xt = endpoint_conditioned_sample(X0, X1, process, t[ind]; ϵ = ϵ, tracker = (t, xt) -> tracker(t, xt, ind))
         cont_state[:,ind] = xt.main_state.state
         disc_state[ind,:] = xt.switching_state.state
+        
     end
     return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
 end
