@@ -292,7 +292,7 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     return xt
 end
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::Union{SwitchBridgeProcess, XDependentSwitchBridgeProcess}, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
+function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::Union{SwitchBridgeProcess, XDependentSwitchBridgeProcess, LatentJumpingProcess}, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
     cont_state = similar(X0.main_state.state)
     disc_state = similar(X0.switching_state.state)
     @inbounds for ind in CartesianIndices(t)
@@ -418,17 +418,4 @@ function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::
     return xt
 end
 
-function endpoint_conditioned_sample(X0::SwitchState, X1::SwitchState, process::LatentJumpingProcess, t::AbstractArray; ϵ = 1e-2, tracker::Function=Returns(nothing))
-    cont_state = similar(X0.main_state.state)
-    disc_state = similar(X0.switching_state.state)
-    @inbounds for ind in CartesianIndices(t)
-        cont_state[:,ind] = X0.main_state.state[:,ind]
-        disc_state[ind,:] = X0.switching_state.state[ind,:]
-        xt = endpoint_conditioned_sample(X0, X1, process, t[ind]; ϵ = ϵ, tracker = (t, xt) -> tracker(t, xt, ind))
-        cont_state[:,ind] = xt.main_state.state
-        disc_state[ind,:] = xt.switching_state.state
-        
-    end
-    return SwitchState(ContinuousState(cont_state), DiscreteState(X0.switching_state.K, disc_state))
-end
 
