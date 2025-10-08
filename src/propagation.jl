@@ -401,6 +401,12 @@ function endpoint_conditioned_sample(X0::LatentJumpingState, X1::LatentJumpingSt
     disc_state = similar(X0.switching_state.state)
     cont_state = similar(X0.continuous_state.state)
     @inbounds for ind in CartesianIndices(tF)
+        x0_main_view = @view X0.combined_state.state[:,ind]
+        x1_main_view = @view X1.combined_state.state[:,ind]
+        x0_disc_view = @view X0.switching_state.state[ind,:]
+        x1_disc_view = @view X1.switching_state.state[ind,:]
+        x0_continuous_view = @view X0.continuous_state.state[:,ind]
+        x1_continuous_view = @view X1.continuous_state.state[:,ind]
         x0 = LatentJumpingState(ContinuousState(x0_main_view), DiscreteState(X0.switching_state.K, x0_disc_view), ContinuousState(x0_continuous_view))
         x1 = LatentJumpingState(ContinuousState(x1_main_view), DiscreteState(X1.switching_state.K, x1_disc_view), ContinuousState(x1_continuous_view))
         xt = endpoint_conditioned_sample(x0, x1, process, tF[ind], tB[ind]; ϵ = ϵ, tracker = (t, xt) -> tracker(t, xt, ind))
