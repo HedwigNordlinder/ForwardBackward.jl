@@ -286,3 +286,71 @@ function backward!(dest::CategoricalLikelihood, source::CategoricalLikelihood, p
 end
 
 #To add: DiagonalizadCTMC, HQtPi
+
+#Switching processes
+
+function step_toward(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t; δt = 1e-2) # X1 is the target state
+    T = eltype(t)
+    δt = T(δt)
+    next_latent = endpoint_conditioned_sample(source.discrete_state, dest.discrete_state, process.switching_process, t, t + δt, T(1))
+    # Might be an issue here, depending on which type next_latent.state is
+    continuous_target = next_latent.state[1] == 1 ? dest.continuous_state : ContinuousState(-dest.continuous_state.state)
+    next_continuous = endpoint_conditioned_sample(source.continuous_state, continuous_target, process.continuous_process, t, t + δt, T(1))
+    return SwitchingState(next_continuous, next_latent)
+end
+function endpoint_conditioned_sample(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t; δt = 1e-2, tracker::Function = Returns(nothing)) # X1 is the target state
+    T = eltype(t)
+    δtT = T(δt)
+    Xt = source
+    τ = zero(T)
+    while τ < t
+        inc = min(T(τ + δtT), t)
+        Xt = step_toward(dest, Xt, process, τ; δt = inc - τ)
+        tracker(inc, (Xt.continuous_state, Xt.discrete_state), (dest.continuous_state, dest.discrete_state))
+        τ = inc
+    end
+    return Xt
+end
+
+# Batched variants (t is a tensor): loop over coordinates and use scalar implementations
+function step_toward(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t::AbstractArray; δt = 5e-3)
+    cont_out = similar(source.continuous_state.state)
+    disc_out = similar(source.discrete_state.state)
+    for I in CartesianIndices(t)
+        idx = Tuple(I)
+        ranges = ntuple(j -> idx[j]:idx[j], length(idx))
+        dest_i = SwitchingState(
+            ContinuousState(view(dest.continuous_state.state, ranges...)),
+            DiscreteState(dest.discrete_state.K, view(dest.discrete_state.state, ranges...)),
+        )
+        source_i = SwitchingState(
+            ContinuousState(view(source.continuous_state.state, ranges...)),
+            DiscreteState(source.discrete_state.K, view(source.discrete_state.state, ranges...)),
+        )
+        res_i = step_toward(dest_i, source_i, process, t[I]; δt = δt)
+        view(cont_out, ranges...) .= res_i.continuous_state.state
+        view(disc_out, ranges...) .= res_i.discrete_state.state
+    end
+    return SwitchingState(ContinuousState(cont_out), DiscreteState(source.discrete_state.K, disc_out))
+end
+
+function endpoint_conditioned_sample(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t::AbstractArray; δt = 5e-3, tracker::Function = Returns(nothing))
+    cont_out = similar(source.continuous_state.state)
+    disc_out = similar(source.discrete_state.state)
+    for I in CartesianIndices(t)
+        idx = Tuple(I)
+        ranges = ntuple(j -> idx[j]:idx[j], length(idx))
+        dest_i = SwitchingState(
+            ContinuousState(view(dest.continuous_state.state, ranges...)),
+            DiscreteState(dest.discrete_state.K, view(dest.discrete_state.state, ranges...)),
+        )
+        source_i = SwitchingState(
+            ContinuousState(view(source.continuous_state.state, ranges...)),
+            DiscreteState(source.discrete_state.K, view(source.discrete_state.state, ranges...)),
+        )
+        res_i = endpoint_conditioned_sample(dest_i, source_i, process, t[I]; δt = δt, tracker = tracker)
+        view(cont_out, ranges...) .= res_i.continuous_state.state
+        view(disc_out, ranges...) .= res_i.discrete_state.state
+    end
+    return SwitchingState(ContinuousState(cont_out), DiscreteState(source.discrete_state.K, disc_out))
+end

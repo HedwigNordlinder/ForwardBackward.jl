@@ -24,11 +24,13 @@ export
     UniformUnmasking,
     GeneralDiscrete,
     PiQ,
+    SwitchingProcess,
     #Likelihoods & States
     CategoricalLikelihood,
     GaussianLikelihood,
     DiscreteState,
     ContinuousState,
+    SwitchingState,
     #Functions
     endpoint_conditioned_sample,
     interpolate,

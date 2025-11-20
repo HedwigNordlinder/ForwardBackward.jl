@@ -216,3 +216,8 @@ function PiQ(r::T,π::Vector{T}; normalize=true) where T <: Real
 end
 
 PiQ(π::Vector{T}; normalize=true) where T <: Real = PiQ(T(1.0), π; normalize=normalize)
+
+struct SwitchingProcess <: Process
+    continuous_process::ContinuousProcess
+    switching_process::DiscreteProcess
+end
