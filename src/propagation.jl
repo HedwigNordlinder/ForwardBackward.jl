@@ -123,6 +123,7 @@ endpoint_conditioned_sample(X0, X1, p, tF, tB) = rand(forward(X0, p, tF) ⊙ bac
 endpoint_conditioned_sample(X0, X1, p, t) = endpoint_conditioned_sample(X0, X1, p, t, clamp.(1 .- t, 0, 1))
 endpoint_conditioned_sample(X0, X1, p::Deterministic, tF, tB) = interpolate(X0, X1, tF, tB)
 endpoint_conditioned_sample(Xa, Xc, p::Process, t_a, t_b, t_c) = rand(forward(Xa, p, t_a, t_b) ⊙ backward(Xc, p, t_b, t_c))
+endpoint_conditioned_sample(Xa::ContinuousState, Xc::ContinuousState, p::Deterministic, t_a, t_b, t_c) = interpolate(Xa, Xc, t_a, t_b, t_c)
 
 function forward!(x_dest::GaussianLikelihood, Xt::GaussianLikelihood, process::OrnsteinUhlenbeck, elapsed_time)
     t = expand(elapsed_time, ndims(Xt.mu))

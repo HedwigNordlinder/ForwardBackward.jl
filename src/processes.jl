@@ -218,6 +218,6 @@ end
 PiQ(π::Vector{T}; normalize=true) where T <: Real = PiQ(T(1.0), π; normalize=normalize)
 
 struct SwitchingProcess <: Process
-    continuous_process::ContinuousProcess
+    continuous_process::Union{ContinuousProcess, Deterministic}
     switching_process::DiscreteProcess
 end
