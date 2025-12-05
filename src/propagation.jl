@@ -290,13 +290,23 @@ end
 
 #Switching processes
 
-function step_toward(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t; δt = 1e-2) # X1 is the target state
+function step_toward(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t; δt = 1e-2) # dest is the target state
     T = eltype(t)
     δt = T(δt)
-    next_latent = endpoint_conditioned_sample(source.discrete_state, dest.discrete_state, process.switching_process, t, t + δt, T(1))
-    # Might be an issue here, depending on which type next_latent.state is
-    continuous_target = next_latent.state[1] == 1 ? dest.continuous_state : ContinuousState(-dest.continuous_state.state)
+    
+    # Get the rates of bridging to x1 and -x1 at this time and state
+    r_to_x1, r_to_neg_x1 = process.rate(t, source)
+    next_latent = DiscreteState(source.discrete_state.K, source.discrete_state.state)
+    if source.discrete_state.state[1] == 1
+        next_latent.state[1] = r_to_neg_x1 * δt > rand() ? 2 : 1
+    else
+        next_latent.state[1] = r_to_x1 * δt > rand() ? 1 : 2
+    end
+    # Determine continuous target based on sampled discrete state
+    bridge_to_x1 = next_latent.state[1] == 1
+    continuous_target = bridge_to_x1 ? dest.continuous_state : ContinuousState(-dest.continuous_state.state)
     next_continuous = endpoint_conditioned_sample(source.continuous_state, continuous_target, process.continuous_process, t, t + δt, T(1))
+    
     return SwitchingState(next_continuous, next_latent)
 end
 function endpoint_conditioned_sample(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t; δt = 1e-2, tracker::Function = Returns(nothing)) # X1 is the target state

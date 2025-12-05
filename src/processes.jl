@@ -217,7 +217,7 @@ end
 
 PiQ(π::Vector{T}; normalize=true) where T <: Real = PiQ(T(1.0), π; normalize=normalize)
 
-struct SwitchingProcess <: Process
+struct SwitchingProcess{F} <: Process
     continuous_process::Union{ContinuousProcess, Deterministic}
-    switching_process::DiscreteProcess
+    rate::F  # Function that takes (t, state) and returns (rate_to_x1, rate_to_neg_x1)
 end
