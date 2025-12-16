@@ -323,45 +323,116 @@ function endpoint_conditioned_sample(dest::SwitchingState, source::SwitchingStat
     return Xt
 end
 
-# Batched variants (t is a tensor): loop over coordinates and use scalar implementations
+# Batched variants (t is a tensor): vectorized where possible
 function step_toward(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t::AbstractArray; δt = 5e-3)
-    cont_out = similar(source.continuous_state.state)
-    disc_out = similar(source.discrete_state.state)
-    for I in CartesianIndices(t)
+    T = eltype(t)
+    δtT = T(δt)
+    K = source.discrete_state.K
+    
+    cont_state = copy(source.continuous_state.state)
+    disc_state = copy(source.discrete_state.state)
+    dest_cont = dest.continuous_state.state
+    
+    # Expand t to match state dimensions for broadcasting
+    t_exp = expand(t, ndims(disc_state))
+    
+    # Pre-allocate rate arrays (same shape as states)
+    r_to_x1 = similar(disc_state, T)
+    r_to_neg_x1 = similar(disc_state, T)
+    
+    # 1. Compute rates (loop required - user function not assumed vectorizable)
+    @inbounds for I in CartesianIndices(disc_state)
         idx = Tuple(I)
         ranges = ntuple(j -> idx[j]:idx[j], length(idx))
-        dest_i = SwitchingState(
-            ContinuousState(view(dest.continuous_state.state, ranges...)),
-            DiscreteState(dest.discrete_state.K, view(dest.discrete_state.state, ranges...)),
-        )
         source_i = SwitchingState(
-            ContinuousState(view(source.continuous_state.state, ranges...)),
-            DiscreteState(source.discrete_state.K, view(source.discrete_state.state, ranges...)),
+            ContinuousState(view(cont_state, ranges...)),
+            DiscreteState(K, view(disc_state, ranges...))
         )
-        res_i = step_toward(dest_i, source_i, process, t[I]; δt = δt)
-        view(cont_out, ranges...) .= res_i.continuous_state.state
-        view(disc_out, ranges...) .= res_i.discrete_state.state
+        r_to_x1[I], r_to_neg_x1[I] = process.rate(t_exp[I], source_i)
     end
-    return SwitchingState(ContinuousState(cont_out), DiscreteState(source.discrete_state.K, disc_out))
+    
+    # 2. Sample discrete transitions (vectorized)
+    rands = rand(T, size(disc_state))
+    rates = @. ifelse(disc_state == 1, r_to_neg_x1, r_to_x1)
+    transitions = rates .* δtT .> rands
+    disc_state .= @. ifelse(transitions, 3 - disc_state, disc_state)
+    
+    # 3. Compute continuous target based on discrete state (vectorized)
+    bridge_mask = disc_state .== 1
+    continuous_target = @. ifelse(bridge_mask, dest_cont, -dest_cont)
+    
+    # 4. Continuous endpoint_conditioned_sample (vectorized)
+    source_cont = ContinuousState(cont_state)
+    target_cont = ContinuousState(continuous_target)
+    new_cont = endpoint_conditioned_sample(source_cont, target_cont, process.continuous_process, t_exp, t_exp .+ δtT, T(1))
+    
+    return SwitchingState(ContinuousState(new_cont.state), DiscreteState(K, disc_state))
 end
 
 function endpoint_conditioned_sample(dest::SwitchingState, source::SwitchingState, process::SwitchingProcess, t::AbstractArray; δt = 5e-3, tracker::Function = Returns(nothing))
-    cont_out = similar(source.continuous_state.state)
-    disc_out = similar(source.discrete_state.state)
-    for I in CartesianIndices(t)
-        idx = Tuple(I)
-        ranges = ntuple(j -> idx[j]:idx[j], length(idx))
-        dest_i = SwitchingState(
-            ContinuousState(view(dest.continuous_state.state, ranges...)),
-            DiscreteState(dest.discrete_state.K, view(dest.discrete_state.state, ranges...)),
-        )
-        source_i = SwitchingState(
-            ContinuousState(view(source.continuous_state.state, ranges...)),
-            DiscreteState(source.discrete_state.K, view(source.discrete_state.state, ranges...)),
-        )
-        res_i = endpoint_conditioned_sample(dest_i, source_i, process, t[I]; δt = δt, tracker = tracker)
-        view(cont_out, ranges...) .= res_i.continuous_state.state
-        view(disc_out, ranges...) .= res_i.discrete_state.state
+    T = eltype(t)
+    δtT = T(δt)
+    K = source.discrete_state.K
+    
+    # Working arrays - modify in place
+    cont_state = copy(source.continuous_state.state)
+    disc_state = copy(source.discrete_state.state)
+    dest_cont = dest.continuous_state.state
+    
+    # Expand t to match state dimensions for broadcasting
+    t_exp = expand(t, ndims(disc_state))
+    
+    # Pre-allocate rate arrays (same shape as states)
+    r_to_x1 = similar(disc_state, T)
+    r_to_neg_x1 = similar(disc_state, T)
+    
+    t_max = maximum(t)
+    τ = zero(T)
+    
+    while τ < t_max
+        next_τ = min(τ + δtT, t_max)
+        
+        # Active mask: elements that haven't reached their target time
+        active = t_exp .> τ
+        
+        # Per-element time step (clamped to each element's target)
+        Δt_elem = @. min(next_τ, t_exp) - τ
+        
+        # 1. Compute rates (loop required - user function not assumed vectorizable)
+        @inbounds for I in CartesianIndices(disc_state)
+            if active[I]
+                idx = Tuple(I)
+                ranges = ntuple(j -> idx[j]:idx[j], length(idx))
+                source_i = SwitchingState(
+                    ContinuousState(view(cont_state, ranges...)),
+                    DiscreteState(K, view(disc_state, ranges...))
+                )
+                r_to_x1[I], r_to_neg_x1[I] = process.rate(τ, source_i)
+            end
+        end
+        
+        # 2. Sample discrete transitions (vectorized)
+        rands = rand(T, size(disc_state))
+        # Select rate based on current state: state==1 uses r_to_neg_x1, state==2 uses r_to_x1
+        rates = @. ifelse(disc_state == 1, r_to_neg_x1, r_to_x1)
+        transitions = @. active & (rates * Δt_elem > rands)
+        # Flip state on transition: 1↔2
+        disc_state .= @. ifelse(transitions, 3 - disc_state, disc_state)
+        
+        # 3. Compute continuous target based on discrete state (vectorized)
+        bridge_mask = disc_state .== 1
+        continuous_target = @. ifelse(bridge_mask, dest_cont, -dest_cont)
+        
+        # 4. Continuous endpoint_conditioned_sample (vectorized)
+        source_cont = ContinuousState(cont_state)
+        target_cont = ContinuousState(continuous_target)
+        new_cont = endpoint_conditioned_sample(source_cont, target_cont, process.continuous_process, τ, τ .+ Δt_elem, T(1))
+        # Only update active elements
+        cont_state .= @. ifelse(active, new_cont.state, cont_state)
+        
+        tracker(next_τ, (ContinuousState(cont_state), DiscreteState(K, disc_state)), (dest.continuous_state, dest.discrete_state))
+        τ = next_τ
     end
-    return SwitchingState(ContinuousState(cont_out), DiscreteState(source.discrete_state.K, disc_out))
+    
+    return SwitchingState(ContinuousState(cont_state), DiscreteState(K, disc_state))
 end
